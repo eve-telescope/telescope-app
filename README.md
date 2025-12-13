@@ -30,7 +30,8 @@
 
 ## Screenshots
 
-<!-- Add screenshots here -->
+<img width="1612" height="912" alt="app" src="https://github.com/user-attachments/assets/b361cd45-ce28-4651-891f-2850182794c8" />
+
 
 ## Installation
 
