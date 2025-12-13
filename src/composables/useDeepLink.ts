@@ -4,7 +4,7 @@ import { parseDeepLinkUrl } from "../utils/share";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { info, error as logError, warn } from "@tauri-apps/plugin-log";
 
-const API_BASE_URL = "https://telescope-web.test";
+const API_BASE_URL = "https://eve-telescope.com";
 
 interface ShareData {
   code: string;

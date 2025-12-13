@@ -1,5 +1,5 @@
 const DEEP_LINK_SCHEME = "telescope";
-const API_BASE_URL = "https://telescope-web.test";
+const API_BASE_URL = "https://eve-telescope.com";
 
 export interface ShareResponse {
   code: string;
