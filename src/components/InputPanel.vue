@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { X, Loader2 } from "lucide-vue-next";
+import { ref } from "vue";
+import { X, Loader2, Share2, Check, AlertCircle } from "lucide-vue-next";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type { PilotIntel } from "../types";
 import ThreatSummary from "./ThreatSummary.vue";
 import ShortcutEditor from "./ShortcutEditor.vue";
+import { createShare } from "../utils/share";
 
 defineProps<{
   loading: boolean;
@@ -21,9 +24,31 @@ const emit = defineEmits<{
   "update:shortcut": [shortcut: string];
 }>();
 
+const shareState = ref<"idle" | "loading" | "copied" | "error">("idle");
+
 function handleKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
     emit("scan");
+  }
+}
+
+async function copyShareLink() {
+  if (shareState.value === "loading") return;
+
+  shareState.value = "loading";
+  try {
+    const result = await createShare(pilotNames.value);
+    await writeText(result.url);
+    shareState.value = "copied";
+    setTimeout(() => {
+      shareState.value = "idle";
+    }, 2000);
+  } catch (e) {
+    console.error("Failed to create share:", e);
+    shareState.value = "error";
+    setTimeout(() => {
+      shareState.value = "idle";
+    }, 3000);
   }
 }
 </script>
@@ -69,6 +94,28 @@ function handleKeydown(e: KeyboardEvent) {
     <div v-if="pilots.length > 0" class="p-3 shrink-0">
       <h3 class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3 mb-2">THREAT SUMMARY</h3>
       <ThreatSummary :pilots="pilots" />
+    </div>
+
+    <!-- Share Button -->
+    <div v-if="pilots.length > 0" class="px-3 pb-3 shrink-0">
+      <button
+        class="w-full py-2 bg-eve-bg-2 border border-eve-border rounded text-eve-text-2 text-xs font-medium tracking-wider cursor-pointer transition-all hover:border-eve-cyan-dim hover:text-eve-cyan disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        :class="{
+          'border-green-500/50 text-green-400': shareState === 'copied',
+          'border-red-500/50 text-red-400': shareState === 'error',
+        }"
+        :disabled="shareState === 'loading'"
+        @click="copyShareLink"
+      >
+        <Loader2 v-if="shareState === 'loading'" class="w-3.5 h-3.5 animate-spin" />
+        <Check v-else-if="shareState === 'copied'" class="w-3.5 h-3.5" />
+        <AlertCircle v-else-if="shareState === 'error'" class="w-3.5 h-3.5" />
+        <Share2 v-else class="w-3.5 h-3.5" />
+        <template v-if="shareState === 'loading'">CREATING LINK...</template>
+        <template v-else-if="shareState === 'copied'">LINK COPIED</template>
+        <template v-else-if="shareState === 'error'">SHARE FAILED</template>
+        <template v-else>SHARE SCAN</template>
+      </button>
     </div>
 
     <!-- Shortcut Settings -->

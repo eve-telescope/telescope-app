@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "telescope",
+  "productName": "Telescope",
   "version": "0.1.0",
   "identifier": "com.timkunze.telescope",
   "build": {
@@ -36,5 +36,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["telescope"]
+      }
+    }
   }
 }

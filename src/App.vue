@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { usePilots } from "./composables/usePilots";
 import { useGlobalShortcut } from "./composables/useGlobalShortcut";
+import { useDeepLink } from "./composables/useDeepLink";
 import TitleBar from "./components/TitleBar.vue";
 import InputPanel from "./components/InputPanel.vue";
 import PilotTable from "./components/PilotTable.vue";
@@ -26,12 +27,18 @@ function handleGlobalPaste(text: string) {
   lookupPilots(text);
 }
 
+function handleDeepLinkPilots(pilots: string) {
+  lookupPilots(pilots);
+}
+
 const { 
   displayShortcut, 
   isActive: shortcutActive, 
   error: shortcutError,
   updateShortcut 
 } = useGlobalShortcut(handleGlobalPaste);
+
+useDeepLink(handleDeepLinkPilots);
 </script>
 
 <template>

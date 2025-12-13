@@ -28,6 +28,7 @@
     "global-shortcut:allow-is-registered",
     "log:default",
     "store:default",
-    "cache:default"
+    "cache:default",
+    "deep-link:default"
   ]
 }

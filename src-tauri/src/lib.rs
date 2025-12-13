@@ -26,6 +26,15 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_cache::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .setup(|_app| {
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = _app.deep_link().register_all();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![commands::lookup_pilots])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
