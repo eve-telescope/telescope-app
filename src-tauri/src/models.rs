@@ -57,4 +57,3 @@ pub struct PilotIntel {
     pub threat_level: String,
     pub error: Option<String>,
 }
-

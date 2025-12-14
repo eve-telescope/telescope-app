@@ -39,5 +39,3 @@ pub fn calculate_threat_level(zkill: &Option<ZkillStats>) -> String {
         }
     }
 }
-
-

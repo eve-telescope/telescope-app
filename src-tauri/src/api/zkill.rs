@@ -1,4 +1,4 @@
-use log::{debug, warn, error};
+use log::{debug, error, warn};
 use reqwest::Client;
 use tauri::AppHandle;
 use tauri_plugin_cache::CacheExt;
@@ -8,14 +8,38 @@ use crate::models::{ActivityHeatmap, ShipStats, SystemStats, ZkillStats};
 const DEFAULT_TTL_SECS: u64 = 3600;
 const EMPTY_TTL_SECS: u64 = 300;
 
-pub async fn fetch_stats(app: &AppHandle, client: &Client, character_id: i64) -> Result<ZkillStats, String> {
+pub struct FetchResult {
+    pub stats: ZkillStats,
+    pub from_cache: bool,
+}
+
+pub fn try_get_cached(app: &AppHandle, character_id: i64) -> Option<ZkillStats> {
     let cache_key = format!("zkill:{}", character_id);
     let cache = app.cache();
-    
+
+    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
+        if let Ok(cached) = serde_json::from_value::<ZkillStats>(cached_value) {
+            return Some(cached);
+        }
+    }
+    None
+}
+
+pub async fn fetch_stats(
+    app: &AppHandle,
+    client: &Client,
+    character_id: i64,
+) -> Result<FetchResult, String> {
+    let cache_key = format!("zkill:{}", character_id);
+    let cache = app.cache();
+
     if let Ok(Some(cached_value)) = cache.get(&cache_key) {
         if let Ok(cached) = serde_json::from_value::<ZkillStats>(cached_value) {
             debug!("Cache HIT for zKill {}", character_id);
-            return Ok(cached);
+            return Ok(FetchResult {
+                stats: cached,
+                from_cache: true,
+            });
         }
     }
 
@@ -25,44 +49,51 @@ pub async fn fetch_stats(app: &AppHandle, client: &Client, character_id: i64) ->
     );
     debug!("Fetching zKill stats for character {}", character_id);
 
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            error!("zKill request failed for {}: {}", character_id, e);
-            format!("Failed to fetch zKill stats: {}", e)
-        })?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        error!("zKill request failed for {}: {}", character_id, e);
+        format!("Failed to fetch zKill stats: {}", e)
+    })?;
 
     if !response.status().is_success() {
-        warn!("zKill returned non-success status {} for character {}", response.status(), character_id);
-        return Ok(ZkillStats::default());
+        warn!(
+            "zKill returned non-success status {} for character {}",
+            response.status(),
+            character_id
+        );
+        return Ok(FetchResult {
+            stats: ZkillStats::default(),
+            from_cache: false,
+        });
     }
 
     let ttl_secs = parse_max_age_secs(
-        response.headers().get("cache-control").and_then(|h| h.to_str().ok())
-    ).unwrap_or(DEFAULT_TTL_SECS);
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|h| h.to_str().ok()),
+    )
+    .unwrap_or(DEFAULT_TTL_SECS);
 
-    let text = response
-        .text()
-        .await
-        .map_err(|e| {
-            error!("Failed to read zKill response for {}: {}", character_id, e);
-            format!("Failed to read zKill response: {}", e)
-        })?;
+    let text = response.text().await.map_err(|e| {
+        error!("Failed to read zKill response for {}: {}", character_id, e);
+        format!("Failed to read zKill response: {}", e)
+    })?;
 
     if text.is_empty() || text == "[]" {
         debug!("No zKill data for character {}", character_id);
         let stats = ZkillStats::default();
-        
+
         let options = Some(tauri_plugin_cache::SetItemOptions {
             ttl: Some(EMPTY_TTL_SECS),
             compress: None,
             compression_method: None,
         });
         let _ = cache.set(cache_key, serde_json::to_value(&stats).unwrap(), options);
-        
-        return Ok(stats);
+
+        return Ok(FetchResult {
+            stats,
+            from_cache: false,
+        });
     }
 
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
@@ -71,20 +102,27 @@ pub async fn fetch_stats(app: &AppHandle, client: &Client, character_id: i64) ->
     })?;
 
     let stats = parse_zkill_response(&json);
-    
+
     let options = Some(tauri_plugin_cache::SetItemOptions {
         ttl: Some(ttl_secs),
         compress: Some(true),
         compression_method: None,
     });
-    
-    if let Err(e) = cache.set(cache_key.clone(), serde_json::to_value(&stats).unwrap(), options) {
+
+    if let Err(e) = cache.set(
+        cache_key.clone(),
+        serde_json::to_value(&stats).unwrap(),
+        options,
+    ) {
         warn!("Failed to cache zKill {}: {}", character_id, e);
     } else {
         debug!("Cached zKill {} for {}s", character_id, ttl_secs);
     }
 
-    Ok(stats)
+    Ok(FetchResult {
+        stats,
+        from_cache: false,
+    })
 }
 
 fn parse_max_age_secs(header: Option<&str>) -> Option<u64> {
@@ -110,10 +148,7 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         .unwrap_or(0.0);
     let isk_lost = json.get("iskLost").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let solo_kills = json.get("soloKills").and_then(|v| v.as_i64()).unwrap_or(0);
-    let solo_losses = json
-        .get("soloLosses")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let solo_losses = json.get("soloLosses").and_then(|v| v.as_i64()).unwrap_or(0);
     let danger_ratio = json
         .get("dangerRatio")
         .and_then(|v| v.as_f64())
@@ -165,10 +200,8 @@ fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
                         if i >= 5 {
                             break;
                         }
-                        let ship_type_id = ship
-                            .get("shipTypeID")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0);
+                        let ship_type_id =
+                            ship.get("shipTypeID").and_then(|v| v.as_i64()).unwrap_or(0);
                         let ship_name = ship
                             .get("shipName")
                             .and_then(|v| v.as_str())

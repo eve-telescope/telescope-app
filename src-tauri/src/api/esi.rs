@@ -1,4 +1,4 @@
-use log::{debug, warn, error};
+use log::{debug, error, warn};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -46,28 +46,20 @@ pub async fn resolve_character_ids(
     let url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility";
     debug!("Resolving {} character names via ESI", names.len());
 
-    let response = client
-        .post(url)
-        .json(&names)
-        .send()
-        .await
-        .map_err(|e| {
-            error!("ESI request failed: {}", e);
-            format!("Failed to resolve character IDs: {}", e)
-        })?;
+    let response = client.post(url).json(&names).send().await.map_err(|e| {
+        error!("ESI request failed: {}", e);
+        format!("Failed to resolve character IDs: {}", e)
+    })?;
 
     if !response.status().is_success() {
         error!("ESI returned error status: {}", response.status());
         return Err(format!("ESI returned error: {}", response.status()));
     }
 
-    let result: EsiIdResult = response
-        .json()
-        .await
-        .map_err(|e| {
-            error!("Failed to parse ESI response: {}", e);
-            format!("Failed to parse ESI response: {}", e)
-        })?;
+    let result: EsiIdResult = response.json().await.map_err(|e| {
+        error!("Failed to parse ESI response: {}", e);
+        format!("Failed to parse ESI response: {}", e)
+    })?;
 
     let mut map = HashMap::new();
     if let Some(characters) = result.characters {
@@ -76,15 +68,32 @@ pub async fn resolve_character_ids(
         }
     }
 
-    let unresolved: Vec<_> = names.iter()
+    let unresolved: Vec<_> = names
+        .iter()
         .filter(|n| !map.contains_key(&n.to_lowercase()))
         .collect();
-    
+
     if !unresolved.is_empty() {
-        warn!("Could not resolve {} characters: {:?}", unresolved.len(), unresolved);
+        warn!(
+            "Could not resolve {} characters: {:?}",
+            unresolved.len(),
+            unresolved
+        );
     }
 
     Ok(map)
+}
+
+pub fn try_get_cached_character(app: &AppHandle, character_id: i64) -> Option<CharacterInfo> {
+    let cache_key = format!("char:{}", character_id);
+    let cache = app.cache();
+
+    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
+        if let Ok(cached) = serde_json::from_value::<CharacterInfo>(cached_value) {
+            return Some(cached);
+        }
+    }
+    None
 }
 
 pub async fn fetch_character_info(
@@ -92,15 +101,13 @@ pub async fn fetch_character_info(
     client: &Client,
     character_id: i64,
 ) -> Result<CharacterInfo, String> {
+    if let Some(cached) = try_get_cached_character(app, character_id) {
+        debug!("Cache HIT for character {}", character_id);
+        return Ok(cached);
+    }
+
     let cache_key = format!("char:{}", character_id);
     let cache = app.cache();
-    
-    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
-        if let Ok(cached) = serde_json::from_value::<CharacterInfo>(cached_value) {
-            debug!("Cache HIT for character {}", character_id);
-            return Ok(cached);
-        }
-    }
 
     let char_url = format!(
         "https://esi.evetech.net/latest/characters/{}/?datasource=tranquility",
@@ -118,8 +125,12 @@ pub async fn fetch_character_info(
     }
 
     let ttl_secs = parse_expires_to_secs(
-        char_response.headers().get("expires").and_then(|h| h.to_str().ok())
-    ).unwrap_or(DEFAULT_TTL_SECS);
+        char_response
+            .headers()
+            .get("expires")
+            .and_then(|h| h.to_str().ok()),
+    )
+    .unwrap_or(DEFAULT_TTL_SECS);
 
     let esi_char: EsiCharacter = char_response
         .json()
@@ -138,9 +149,12 @@ pub async fn fetch_character_info(
             .map(|c| (Some(c.name), Some(c.ticker)))
             .unwrap_or((None, None)),
         Err(e) => {
-            warn!("Failed to fetch corporation {}: {}", esi_char.corporation_id, e);
+            warn!(
+                "Failed to fetch corporation {}: {}",
+                esi_char.corporation_id, e
+            );
             (None, None)
-        },
+        }
     };
 
     let (alliance_name, alliance_ticker) = if let Some(alliance_id) = esi_char.alliance_id {
@@ -158,7 +172,7 @@ pub async fn fetch_character_info(
             Err(e) => {
                 warn!("Failed to fetch alliance {}: {}", alliance_id, e);
                 (None, None)
-            },
+            }
         }
     } else {
         (None, None)
@@ -180,8 +194,12 @@ pub async fn fetch_character_info(
         compress: None,
         compression_method: None,
     });
-    
-    if let Err(e) = cache.set(cache_key.clone(), serde_json::to_value(&info).unwrap(), options) {
+
+    if let Err(e) = cache.set(
+        cache_key.clone(),
+        serde_json::to_value(&info).unwrap(),
+        options,
+    ) {
         warn!("Failed to cache character {}: {}", character_id, e);
     } else {
         debug!("Cached character {} for {}s", character_id, ttl_secs);
@@ -192,12 +210,12 @@ pub async fn fetch_character_info(
 
 fn parse_expires_to_secs(header: Option<&str>) -> Option<u64> {
     use chrono::{DateTime, Utc};
-    
+
     let header = header?;
     let expires: DateTime<Utc> = DateTime::parse_from_rfc2822(header)
         .ok()?
         .with_timezone(&Utc);
-    
+
     let now = Utc::now();
     if expires > now {
         Some((expires - now).num_seconds() as u64)

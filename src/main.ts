@@ -1,8 +1,9 @@
-import { createApp } from "vue";
-import App from "./App.vue";
-import "./styles/global.css";
-import { initLogger } from "./utils/logger";
+import { createApp } from 'vue'
+import RouterRoot from './RouterRoot.vue'
+import router from './router'
+import './styles/global.css'
+import { initLogger } from './utils/logger'
 
-initLogger();
+initLogger()
 
-createApp(App).mount("#app");
+createApp(RouterRoot).use(router).mount('#app')

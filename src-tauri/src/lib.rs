@@ -15,7 +15,9 @@ pub fn run() {
                 .targets([
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::Webview),
-                    Target::new(TargetKind::LogDir { file_name: Some("telescope".to_string()) }),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some("telescope".to_string()),
+                    }),
                 ])
                 .level(log::LevelFilter::Info)
                 .build(),
@@ -35,7 +37,11 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::lookup_pilots])
+        .invoke_handler(tauri::generate_handler![
+            commands::lookup_pilots,
+            commands::clear_cache,
+            commands::check_for_update
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
