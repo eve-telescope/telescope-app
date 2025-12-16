@@ -1,6 +1,8 @@
 export interface ShipStats {
     ship_type_id: number
     ship_name: string
+    group_id: number
+    group_name: string
     kills: number
     losses: number
 }
@@ -27,6 +29,7 @@ export interface ZkillStats {
     gang_ratio: number
     points_destroyed: number
     active_pvp_kills: number
+    avg_attackers: number
     top_ships: ShipStats[]
     activity: ActivityHeatmap | null
     top_systems: SystemStats[]
@@ -43,9 +46,19 @@ export interface CharacterInfo {
     alliance_ticker: string | null
 }
 
+export interface PilotFlags {
+    is_cyno: boolean
+    is_recon: boolean
+    is_blops: boolean
+    is_capital: boolean
+    is_super: boolean
+    is_solo: boolean
+}
+
 export interface PilotIntel {
     character: CharacterInfo
     zkill: ZkillStats | null
     threat_level: string
+    flags: PilotFlags
     error: string | null
 }

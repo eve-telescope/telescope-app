@@ -172,6 +172,11 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
     let top_systems = parse_top_systems(json);
     let activity = parse_activity(json);
 
+    let avg_attackers = json
+        .get("avgGangSize")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
+
     ZkillStats {
         ships_destroyed,
         ships_lost,
@@ -183,6 +188,7 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         gang_ratio,
         points_destroyed,
         active_pvp_kills,
+        avg_attackers,
         top_ships,
         activity,
         top_systems,
@@ -207,6 +213,12 @@ fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
                             .and_then(|v| v.as_str())
                             .unwrap_or("Unknown")
                             .to_string();
+                        let group_id = ship.get("groupID").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let group_name = ship
+                            .get("groupName")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
                         let kills = ship.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
                         let losses = ship.get("losses").and_then(|v| v.as_i64()).unwrap_or(0);
 
@@ -214,6 +226,8 @@ fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
                             top_ships.push(ShipStats {
                                 ship_type_id,
                                 ship_name,
+                                group_id,
+                                group_name,
                                 kills,
                                 losses,
                             });

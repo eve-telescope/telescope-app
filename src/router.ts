@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import AboutWindow from './components/AboutWindow.vue'
+import OverlayWindow from './components/OverlayWindow.vue'
 
 const router = createRouter({
     history: createWebHistory(),
@@ -12,6 +13,10 @@ const router = createRouter({
         {
             path: '/about',
             component: AboutWindow,
+        },
+        {
+            path: '/overlay',
+            component: OverlayWindow,
         },
     ],
 })

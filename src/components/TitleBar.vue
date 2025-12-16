@@ -2,7 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { platform } from '@tauri-apps/plugin-os'
-import { Crosshair, Minus, Square, X, Copy } from 'lucide-vue-next'
+import { Crosshair, Minus, Square, X, Copy, Layers } from 'lucide-vue-next'
+import { useOverlayWindow } from '../composables/useOverlayWindow'
 
 defineProps<{
     pilotCount: number
@@ -12,16 +13,16 @@ const appWindow = getCurrentWindow()
 const isMac = ref(false)
 const isMaximized = ref(false)
 
+const { isOverlayOpen, toggleOverlay } = useOverlayWindow()
+
 onMounted(async () => {
     isMac.value = platform() === 'macos'
     isMaximized.value = await appWindow.isMaximized()
 
-    // Hide native decorations on Windows/Linux for custom title bar
     if (!isMac.value) {
         await appWindow.setDecorations(false)
     }
 
-    // Listen for maximize/unmaximize events
     appWindow.onResized(async () => {
         isMaximized.value = await appWindow.isMaximized()
     })
@@ -62,8 +63,24 @@ async function close() {
             </span>
         </div>
 
-        <!-- Right: Window controls (Windows/Linux only) -->
-        <div class="w-36 shrink-0 flex items-center justify-end">
+        <!-- Right: Overlay toggle + Window controls -->
+        <div class="shrink-0 flex items-center justify-end">
+            <!-- Overlay toggle -->
+            <button
+                class="px-2 py-1 mr-2 flex items-center gap-1.5 rounded text-[10px] font-medium transition-all"
+                :class="
+                    isOverlayOpen
+                        ? 'bg-eve-cyan/20 text-eve-cyan'
+                        : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5'
+                "
+                @click="toggleOverlay"
+                title="Toggle overlay window"
+            >
+                <Layers class="w-3.5 h-3.5" :stroke-width="1.5" />
+                <span class="hidden sm:inline">Overlay</span>
+            </button>
+
+            <!-- Window controls (Windows/Linux only) -->
             <template v-if="!isMac">
                 <button
                     class="w-11 h-8 flex items-center justify-center text-eve-text-3 hover:bg-white/10 hover:text-eve-text-1 transition-colors"

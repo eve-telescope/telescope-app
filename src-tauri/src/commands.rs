@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 
 use crate::api::{create_client, esi, zkill};
-use crate::intel::calculate_threat_level;
-use crate::models::{CharacterInfo, PilotIntel};
+use crate::intel::{calculate_threat_level, detect_pilot_flags};
+use crate::models::{CharacterInfo, PilotFlags, PilotIntel};
 
 const DISPATCH_INTERVAL_MS: u64 = 100;
 
@@ -165,12 +165,15 @@ fn try_from_cache(app: &AppHandle, character_id: Option<i64>) -> Option<PilotInt
     let character = esi::try_get_cached_character(app, id)?;
     let zkill_result = zkill::try_get_cached(app, id)?;
 
-    let threat_level = calculate_threat_level(&Some(zkill_result.clone()));
+    let zkill_opt = Some(zkill_result.clone());
+    let threat_level = calculate_threat_level(&zkill_opt);
+    let flags = detect_pilot_flags(&zkill_opt);
 
     Some(PilotIntel {
         character,
         zkill: Some(zkill_result),
         threat_level,
+        flags,
         error: None,
     })
 }
@@ -207,11 +210,13 @@ async fn fetch_pilot_intel(
                 };
 
                 let threat_level = calculate_threat_level(&zkill);
+                let flags = detect_pilot_flags(&zkill);
                 (
                     PilotIntel {
                         character,
                         zkill,
                         threat_level,
+                        flags,
                         error: None,
                     },
                     from_cache,
@@ -233,6 +238,7 @@ async fn fetch_pilot_intel(
                         },
                         zkill: None,
                         threat_level: "Unknown".to_string(),
+                        flags: PilotFlags::default(),
                         error: Some(e),
                     },
                     false,
@@ -255,6 +261,7 @@ async fn fetch_pilot_intel(
                     },
                     zkill: None,
                     threat_level: "Unknown".to_string(),
+                    flags: PilotFlags::default(),
                     error: Some("Character not found".to_string()),
                 },
                 false,

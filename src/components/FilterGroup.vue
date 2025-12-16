@@ -19,9 +19,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-    <div class="flex flex-col min-h-0">
+    <div>
         <h4
-            class="text-[10px] font-semibold tracking-wider text-eve-text-3 uppercase mb-2 flex items-center gap-2 shrink-0"
+            class="text-[10px] font-semibold tracking-wider text-eve-text-3 uppercase grid grid-cols-[1fr_auto] items-center gap-2 mb-2"
         >
             {{ title }}
             <span
@@ -29,7 +29,7 @@ const emit = defineEmits<{
                 >{{ items.length }}</span
             >
         </h4>
-        <div class="flex flex-col gap-0.5 overflow-y-auto flex-1">
+        <div class="flex flex-col gap-0.5">
             <button
                 v-for="item in items"
                 :key="item.name"

@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, toRef } from 'vue'
 import { X } from 'lucide-vue-next'
 import type { PilotIntel } from '../types'
 import FilterGroup from './FilterGroup.vue'
+import { usePilotCounts } from '../composables/usePilotCounts'
 
 const props = defineProps<{
     pilots: PilotIntel[]
     selectedCorps: Set<string>
     selectedAlliances: Set<string>
+    selectedTags: Set<string>
 }>()
 
 const emit = defineEmits<{
     toggleCorp: [name: string]
     toggleAlliance: [name: string]
+    toggleTag: [tag: string]
     clearFilters: []
 }>()
+
+const { tagCounts } = usePilotCounts(toRef(props, 'pilots'))
 
 interface GroupInfo {
     id: number
@@ -67,8 +72,63 @@ const alliances = computed<GroupInfo[]>(() => {
         .sort((a, b) => b.count - a.count)
 })
 
+interface TagInfo {
+    key: string
+    label: string
+    count: number
+    colorClass: string
+}
+
+const TAG_DEFS: {
+    key: keyof typeof tagCounts.value
+    label: string
+    colorClass: string
+}[] = [
+    {
+        key: 'super',
+        label: 'SUPER',
+        colorClass: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+    },
+    {
+        key: 'capital',
+        label: 'CAPITAL',
+        colorClass: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    },
+    {
+        key: 'blops',
+        label: 'BLACK OPS',
+        colorClass: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+    },
+    {
+        key: 'recon',
+        label: 'RECON',
+        colorClass: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+    },
+    {
+        key: 'cyno',
+        label: 'CYNO',
+        colorClass: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    },
+    {
+        key: 'solo',
+        label: 'SOLO',
+        colorClass: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+    },
+]
+
+const tags = computed<TagInfo[]>(() => {
+    return TAG_DEFS.filter((t) => tagCounts.value[t.key] > 0).map((t) => ({
+        ...t,
+        count: tagCounts.value[t.key],
+    }))
+})
+
 const hasFilters = computed(() => {
-    return props.selectedCorps.size > 0 || props.selectedAlliances.size > 0
+    return (
+        props.selectedCorps.size > 0 ||
+        props.selectedAlliances.size > 0 ||
+        props.selectedTags.size > 0
+    )
 })
 
 function getCorpLogo(id: number): string {
@@ -103,26 +163,60 @@ function getAllianceLogo(id: number): string {
             </button>
         </div>
 
-        <!-- Alliances -->
-        <div v-if="alliances.length > 0" class="p-3 border-b border-eve-border">
-            <FilterGroup
-                title="Alliances"
-                :items="alliances"
-                :selected="selectedAlliances"
-                :get-logo-url="getAllianceLogo"
-                @toggle="emit('toggleAlliance', $event)"
-            />
-        </div>
+        <!-- Scrollable filter lists -->
+        <div class="flex-1 overflow-y-auto min-h-0">
+            <!-- Tags -->
+            <div v-if="tags.length > 0" class="p-3 border-b border-eve-border">
+                <h4
+                    class="text-[10px] font-semibold tracking-wider text-eve-text-3 uppercase mb-2"
+                >
+                    Tags
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                    <button
+                        v-for="tag in tags"
+                        :key="tag.key"
+                        class="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded border transition-colors"
+                        :class="[
+                            tag.colorClass,
+                            selectedTags.has(tag.key)
+                                ? 'ring-1 ring-white/30'
+                                : 'opacity-70 hover:opacity-100',
+                        ]"
+                        @click="emit('toggleTag', tag.key)"
+                    >
+                        {{ tag.label }}
+                        <span class="font-mono text-[9px] opacity-75">{{
+                            tag.count
+                        }}</span>
+                    </button>
+                </div>
+            </div>
 
-        <!-- Corporations -->
-        <div class="p-3 flex-1 overflow-hidden">
-            <FilterGroup
-                title="Corporations"
-                :items="corporations"
-                :selected="selectedCorps"
-                :get-logo-url="getCorpLogo"
-                @toggle="emit('toggleCorp', $event)"
-            />
+            <!-- Alliances -->
+            <div
+                v-if="alliances.length > 0"
+                class="p-3 border-b border-eve-border"
+            >
+                <FilterGroup
+                    title="Alliances"
+                    :items="alliances"
+                    :selected="selectedAlliances"
+                    :get-logo-url="getAllianceLogo"
+                    @toggle="emit('toggleAlliance', $event)"
+                />
+            </div>
+
+            <!-- Corporations -->
+            <div class="p-3">
+                <FilterGroup
+                    title="Corporations"
+                    :items="corporations"
+                    :selected="selectedCorps"
+                    :get-logo-url="getCorpLogo"
+                    @toggle="emit('toggleCorp', $event)"
+                />
+            </div>
         </div>
     </aside>
 </template>

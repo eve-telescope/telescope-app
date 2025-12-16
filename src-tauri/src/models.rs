@@ -24,6 +24,7 @@ pub struct ZkillStats {
     pub gang_ratio: f64,
     pub points_destroyed: i64,
     pub active_pvp_kills: i64,
+    pub avg_attackers: f64,
     pub top_ships: Vec<ShipStats>,
     pub activity: Option<ActivityHeatmap>,
     pub top_systems: Vec<SystemStats>,
@@ -33,6 +34,8 @@ pub struct ZkillStats {
 pub struct ShipStats {
     pub ship_type_id: i64,
     pub ship_name: String,
+    pub group_id: i64,
+    pub group_name: String,
     pub kills: i64,
     pub losses: i64,
 }
@@ -50,10 +53,21 @@ pub struct SystemStats {
     pub kills: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PilotFlags {
+    pub is_cyno: bool,
+    pub is_recon: bool,
+    pub is_blops: bool,
+    pub is_capital: bool,
+    pub is_super: bool,
+    pub is_solo: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PilotIntel {
     pub character: CharacterInfo,
     pub zkill: Option<ZkillStats>,
     pub threat_level: String,
+    pub flags: PilotFlags,
     pub error: Option<String>,
 }

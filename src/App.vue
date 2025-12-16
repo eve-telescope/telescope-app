@@ -3,6 +3,7 @@ import { usePilots } from './composables/usePilots'
 import { useGlobalShortcut } from './composables/useGlobalShortcut'
 import { useDeepLink } from './composables/useDeepLink'
 import { useUpdateChecker } from './composables/useUpdateChecker'
+import { useOverlayWindow } from './composables/useOverlayWindow'
 import TitleBar from './components/TitleBar.vue'
 import InputPanel from './components/InputPanel.vue'
 import PilotTable from './components/PilotTable.vue'
@@ -19,12 +20,16 @@ const {
     pilotCount,
     selectedCorps,
     selectedAlliances,
+    selectedTags,
     lookupPilots,
     toggleCorp,
     toggleAlliance,
+    toggleTag,
     clearFilters,
     clear,
 } = usePilots()
+
+const { clearOverlay } = useOverlayWindow()
 
 function handleGlobalPaste(text: string) {
     lookupPilots(text)
@@ -32,6 +37,11 @@ function handleGlobalPaste(text: string) {
 
 function handleDeepLinkPilots(pilots: string) {
     lookupPilots(pilots)
+}
+
+function handleClear() {
+    clear()
+    clearOverlay()
 }
 
 const { displayShortcut, updateShortcut } = useGlobalShortcut(handleGlobalPaste)
@@ -55,7 +65,7 @@ const { updateAvailable, updateInfo, dismissed, dismiss } = useUpdateChecker()
                 :progress="progress"
                 :shortcut="displayShortcut()"
                 @scan="lookupPilots"
-                @clear="clear"
+                @clear="handleClear"
                 @update:shortcut="updateShortcut"
             />
 
@@ -76,8 +86,10 @@ const { updateAvailable, updateInfo, dismissed, dismiss } = useUpdateChecker()
                 :pilots="pilots"
                 :selected-corps="selectedCorps"
                 :selected-alliances="selectedAlliances"
+                :selected-tags="selectedTags"
                 @toggle-corp="toggleCorp"
                 @toggle-alliance="toggleAlliance"
+                @toggle-tag="toggleTag"
                 @clear-filters="clearFilters"
             />
         </div>

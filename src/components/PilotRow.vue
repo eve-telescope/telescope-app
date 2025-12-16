@@ -3,10 +3,10 @@ import type { PilotIntel } from '../types'
 import {
     formatIsk,
     formatPpk,
-    getKdRatio,
     getPortraitUrl,
     getShipIconUrl,
 } from '../utils/format'
+import { getFlagLabels } from '../utils/intel'
 import ThreatBadge from './ThreatBadge.vue'
 import PilotDetails from './PilotDetails.vue'
 
@@ -26,7 +26,7 @@ const emit = defineEmits<{
         :data-threat="pilot.threat_level.toLowerCase()"
     >
         <div
-            class="grid grid-cols-[54px_minmax(120px,1fr)_minmax(100px,1.2fr)_minmax(80px,1fr)_160px_100px_90px_50px_50px] gap-2 items-center px-4 py-1.5 cursor-pointer"
+            class="grid grid-cols-[54px_minmax(120px,1fr)_120px_minmax(100px,1.2fr)_minmax(80px,1fr)_140px_35px_65px_90px_50px_50px_50px] gap-2 items-center px-4 py-1.5 cursor-pointer"
             @click="emit('toggle')"
         >
             <!-- Threat Badge -->
@@ -50,6 +50,25 @@ const emit = defineEmits<{
                 <span class="font-semibold text-sm truncate">{{
                     pilot.character.name
                 }}</span>
+            </div>
+
+            <!-- Tags -->
+            <div class="flex items-center gap-1 flex-wrap">
+                <span
+                    v-for="flag in getFlagLabels(pilot.flags)"
+                    :key="flag"
+                    class="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                    :class="{
+                        'bg-purple-500/20 text-purple-400': flag === 'CYNO',
+                        'bg-teal-500/20 text-teal-400': flag === 'RECON',
+                        'bg-indigo-500/20 text-indigo-400':
+                            flag === 'BLACK OPS',
+                        'bg-amber-500/20 text-amber-400': flag === 'CAPITAL',
+                        'bg-rose-500/20 text-rose-400': flag === 'SUPER',
+                        'bg-sky-500/20 text-sky-400': flag === 'SOLO',
+                    }"
+                    >{{ flag }}</span
+                >
             </div>
 
             <!-- Corporation -->
@@ -107,23 +126,36 @@ const emit = defineEmits<{
                 <span v-else class="text-eve-text-3">—</span>
             </div>
 
-            <!-- K/D -->
-            <div class="font-mono text-xs">
+            <!-- K/D Ratio -->
+            <div
+                class="font-mono text-sm text-eve-text-2 tabular-nums text-right"
+            >
+                <span v-if="pilot.zkill">{{
+                    pilot.zkill.ships_lost > 0
+                        ? (
+                              pilot.zkill.ships_destroyed /
+                              pilot.zkill.ships_lost
+                          ).toFixed(1)
+                        : pilot.zkill.ships_destroyed > 0
+                          ? '∞'
+                          : '0'
+                }}</span>
+                <span v-else class="text-eve-text-3">—</span>
+            </div>
+
+            <!-- K/D Numbers -->
+            <div
+                class="font-mono text-[11px] flex flex-col leading-tight tabular-nums"
+            >
                 <template v-if="pilot.zkill">
-                    <span class="text-eve-green">{{
-                        pilot.zkill.ships_destroyed.toLocaleString()
-                    }}</span>
-                    <span class="text-eve-text-3 mx-0.5">/</span>
-                    <span class="text-eve-red">{{
-                        pilot.zkill.ships_lost.toLocaleString()
-                    }}</span>
-                    <span class="text-eve-text-3 mx-0.5">/</span>
-                    <span class="text-eve-text-2">{{
-                        getKdRatio(
-                            pilot.zkill.ships_destroyed,
-                            pilot.zkill.ships_lost
-                        )
-                    }}</span>
+                    <span class="text-eve-green"
+                        >+{{
+                            pilot.zkill.ships_destroyed.toLocaleString()
+                        }}</span
+                    >
+                    <span class="text-eve-red"
+                        >-{{ pilot.zkill.ships_lost.toLocaleString() }}</span
+                    >
                 </template>
                 <span v-else class="text-eve-text-3">—</span>
             </div>
@@ -150,6 +182,14 @@ const emit = defineEmits<{
                             pilot.zkill.ships_destroyed
                         )
                     }}
+                </span>
+                <span v-else class="text-eve-text-3">—</span>
+            </div>
+
+            <!-- CPK -->
+            <div class="text-right font-mono text-xs">
+                <span v-if="pilot.zkill" class="text-eve-text-2">
+                    {{ pilot.zkill.avg_attackers.toFixed(1) }}
                 </span>
                 <span v-else class="text-eve-text-3">—</span>
             </div>
