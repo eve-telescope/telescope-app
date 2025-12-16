@@ -7,6 +7,7 @@ export interface Settings {
     autoScanOnShortcut: boolean
     sortColumn: string
     sortDirection: 'asc' | 'desc'
+    overlayLocked: boolean
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -14,6 +15,7 @@ const DEFAULT_SETTINGS: Settings = {
     autoScanOnShortcut: true,
     sortColumn: 'threat',
     sortDirection: 'desc',
+    overlayLocked: false,
 }
 
 const store = new LazyStore('settings.json')

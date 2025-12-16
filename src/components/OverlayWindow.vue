@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -9,6 +9,7 @@ import { getFlagLabels } from '../utils/intel'
 import { usePilotCounts } from '../composables/usePilotCounts'
 import { useSyncedFilters } from '../composables/useSyncedFilters'
 import { usePilotSort } from '../composables/usePilotSort'
+import { useSettings } from '../composables/useSettings'
 
 function openZkill(characterId: number) {
     if (characterId > 0) {
@@ -26,6 +27,14 @@ function openShipZkill(characterId: number, shipTypeId: number) {
 
 const pilots = ref<PilotIntel[]>([])
 const opacity = ref(0.85)
+
+const { settings } = useSettings()
+const locked = computed({
+    get: () => settings.value.overlayLocked,
+    set: (val) => {
+        settings.value.overlayLocked = val
+    },
+})
 
 const { threatCounts, tagCounts } = usePilotCounts(pilots)
 const {
@@ -51,6 +60,12 @@ onMounted(async () => {
         pilots.value = []
     })
 
+    // Apply persisted lock state
+    if (locked.value) {
+        const window = getCurrentWindow()
+        await window.setResizable(false)
+    }
+
     emit('overlay-sync-request')
 })
 
@@ -61,7 +76,15 @@ async function closeOverlay() {
 }
 
 function startDrag() {
-    getCurrentWindow().startDragging()
+    if (!locked.value) {
+        getCurrentWindow().startDragging()
+    }
+}
+
+async function toggleLock() {
+    locked.value = !locked.value
+    const window = getCurrentWindow()
+    await window.setResizable(!locked.value)
 }
 </script>
 
@@ -72,7 +95,8 @@ function startDrag() {
     >
         <!-- Header -->
         <div
-            class="flex items-center justify-between px-3 py-1.5 bg-eve-bg-0/95 border-b border-eve-cyan/30 cursor-move backdrop-blur-sm shrink-0"
+            class="flex items-center justify-between px-3 py-1.5 bg-eve-bg-0/95 border-b border-eve-cyan/30 backdrop-blur-sm shrink-0"
+            :class="locked ? 'cursor-default' : 'cursor-move'"
             @mousedown="startDrag"
         >
             <div class="flex items-center gap-2">
@@ -84,25 +108,69 @@ function startDrag() {
                 }}</span>
             </div>
 
-            <button
-                class="w-6 h-6 flex items-center justify-center text-eve-text-3 hover:text-eve-red rounded hover:bg-eve-bg-3 transition-colors"
-                @click="closeOverlay"
-                title="Close overlay"
-            >
-                <svg
-                    class="w-3.5 h-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+            <div class="flex items-center gap-1">
+                <!-- Lock button -->
+                <button
+                    class="w-6 h-6 flex items-center justify-center rounded transition-colors"
+                    :class="
+                        locked
+                            ? 'text-eve-cyan bg-eve-cyan/20'
+                            : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-3'
+                    "
+                    @click.stop="toggleLock"
+                    :title="locked ? 'Unlock position' : 'Lock position'"
                 >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12"
-                    />
-                </svg>
-            </button>
+                    <svg
+                        v-if="locked"
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                        />
+                    </svg>
+                    <svg
+                        v-else
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                        />
+                    </svg>
+                </button>
+
+                <!-- Close button -->
+                <button
+                    class="w-6 h-6 flex items-center justify-center text-eve-text-3 hover:text-eve-red rounded hover:bg-eve-bg-3 transition-colors"
+                    @click.stop="closeOverlay"
+                    title="Close overlay"
+                >
+                    <svg
+                        class="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                        />
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <!-- Filters Bar -->
