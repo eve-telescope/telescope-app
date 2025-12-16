@@ -13,7 +13,7 @@ const appWindow = getCurrentWindow()
 const isMac = ref(false)
 const isMaximized = ref(false)
 
-const { isOverlayOpen, toggleOverlay } = useOverlayWindow()
+const { isOverlayOpen, toggleOverlay, closeOverlay } = useOverlayWindow()
 
 onMounted(async () => {
     isMac.value = platform() === 'macos'
@@ -26,6 +26,14 @@ onMounted(async () => {
     appWindow.onResized(async () => {
         isMaximized.value = await appWindow.isMaximized()
     })
+
+    appWindow.onCloseRequested(async () => {
+        try {
+            await closeOverlay()
+        } catch (e) {
+            console.log('Error closing overlay:', e)
+        }
+    })
 })
 
 async function minimize() {
@@ -37,6 +45,7 @@ async function toggleMaximize() {
 }
 
 async function close() {
+    await closeOverlay()
     await appWindow.close()
 }
 </script>

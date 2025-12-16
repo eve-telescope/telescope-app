@@ -57,8 +57,7 @@ onMounted(async () => {
 async function closeOverlay() {
     unlistenSync?.()
     unlistenClear?.()
-    const window = getCurrentWindow()
-    await window.close()
+    await emit('overlay-close-request')
 }
 
 function startDrag() {

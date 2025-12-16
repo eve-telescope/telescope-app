@@ -1,9 +1,10 @@
 import { ref } from 'vue'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { emit } from '@tauri-apps/api/event'
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 let overlayWindow: WebviewWindow | null = null
 const isOverlayOpen = ref(false)
+let unlistenCloseRequest: UnlistenFn | null = null
 
 export function useOverlayWindow() {
     async function openOverlay() {
@@ -37,11 +38,25 @@ export function useOverlayWindow() {
             overlayWindow = null
             isOverlayOpen.value = false
         })
+
+        // Listen for close request from overlay
+        unlistenCloseRequest = await listen('overlay-close-request', () => {
+            closeOverlay()
+        })
     }
 
     async function closeOverlay() {
+        if (unlistenCloseRequest) {
+            unlistenCloseRequest()
+            unlistenCloseRequest = null
+        }
         if (overlayWindow) {
-            await overlayWindow.close()
+            try {
+                await overlayWindow.close()
+            } catch (e) {
+                // Window might already be closed
+                console.log('Overlay close error (may be expected):', e)
+            }
             overlayWindow = null
             isOverlayOpen.value = false
         }
