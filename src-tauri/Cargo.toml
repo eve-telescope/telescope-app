@@ -1,6 +1,6 @@
 [package]
 name = "Telescope"
-version = "0.1.3"
+version = "0.1.4"
 description = "An EVE Online local scanner application built with Tauri."
 authors = ["Nicolas Kion"]
 edition = "2021"
