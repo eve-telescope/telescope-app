@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type { PilotIntel } from '../types'
@@ -26,7 +27,6 @@ function openShipZkill(characterId: number, shipTypeId: number) {
 }
 
 const pilots = ref<PilotIntel[]>([])
-const opacity = ref(0.85)
 
 const { settings } = useSettings()
 const locked = computed({
@@ -62,42 +62,49 @@ onMounted(async () => {
 
     // Apply persisted lock state
     if (locked.value) {
-        const window = getCurrentWindow()
-        await window.setResizable(false)
+        try {
+            const window = getCurrentWindow()
+            await window.setResizable(false)
+        } catch (e) {
+            console.error('Failed to apply lock state:', e)
+        }
     }
 
     emit('overlay-sync-request')
 })
 
-async function closeOverlay() {
+onUnmounted(() => {
     unlistenSync?.()
     unlistenClear?.()
-    await emit('overlay-close-request')
-}
+})
 
-function startDrag() {
-    if (!locked.value) {
-        getCurrentWindow().startDragging()
-    }
+async function closeOverlay() {
+    await invoke('close_overlay')
 }
 
 async function toggleLock() {
-    locked.value = !locked.value
+    const newLocked = !locked.value
     const window = getCurrentWindow()
-    await window.setResizable(!locked.value)
+    try {
+        await window.setResizable(!newLocked)
+        locked.value = newLocked
+    } catch (e) {
+        console.error('Failed to set resizable:', e)
+        // Still update the lock state for drag prevention even if resize fails
+        locked.value = newLocked
+    }
 }
 </script>
 
 <template>
     <div
-        class="h-screen w-screen select-none overflow-hidden flex flex-col"
-        :style="{ opacity: opacity }"
+        class="h-screen w-screen select-none overflow-hidden flex flex-col bg-eve-bg-0"
     >
         <!-- Header -->
         <div
-            class="flex items-center justify-between px-3 py-1.5 bg-eve-bg-0/95 border-b border-eve-cyan/30 backdrop-blur-sm shrink-0"
+            class="flex items-center justify-between px-3 py-1.5 bg-eve-bg-1 border-b border-eve-cyan/30 shrink-0"
             :class="locked ? 'cursor-default' : 'cursor-move'"
-            @mousedown="startDrag"
+            :data-tauri-drag-region="!locked || undefined"
         >
             <div class="flex items-center gap-2">
                 <div
@@ -117,7 +124,7 @@ async function toggleLock() {
                             ? 'text-eve-cyan bg-eve-cyan/20'
                             : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-3'
                     "
-                    @click.stop="toggleLock"
+                    @click="toggleLock"
                     :title="locked ? 'Unlock position' : 'Lock position'"
                 >
                     <svg
@@ -153,7 +160,7 @@ async function toggleLock() {
                 <!-- Close button -->
                 <button
                     class="w-6 h-6 flex items-center justify-center text-eve-text-3 hover:text-eve-red rounded hover:bg-eve-bg-3 transition-colors"
-                    @click.stop="closeOverlay"
+                    @click="closeOverlay"
                     title="Close overlay"
                 >
                     <svg
@@ -176,7 +183,7 @@ async function toggleLock() {
         <!-- Filters Bar -->
         <div
             v-if="pilots.length > 0"
-            class="flex flex-col bg-eve-bg-1/90 border-b border-eve-border/50 backdrop-blur-sm text-[10px] shrink-0"
+            class="flex flex-col bg-eve-bg-1 border-b border-eve-border/50 text-[10px] shrink-0"
         >
             <!-- Row 1: Threat + Special filters -->
             <div
@@ -340,7 +347,7 @@ async function toggleLock() {
         <!-- Column Headers -->
         <div
             v-if="pilots.length > 0"
-            class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 px-3 py-1 bg-eve-bg-2/90 border-b border-eve-border/50 text-[9px] font-semibold text-eve-text-3 uppercase shrink-0"
+            class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 px-3 py-1 bg-eve-bg-2 border-b border-eve-border/50 text-[9px] font-semibold text-eve-text-3 uppercase shrink-0"
         >
             <button
                 @click="handleSort('threat')"
@@ -439,7 +446,7 @@ async function toggleLock() {
         <!-- Pilots List -->
         <div
             v-if="pilots.length > 0"
-            class="pilots-list flex-1 overflow-y-scroll overflow-x-hidden bg-eve-bg-0/85 backdrop-blur-sm relative"
+            class="pilots-list flex-1 overflow-y-scroll overflow-x-hidden bg-eve-bg-0 relative"
         >
             <TransitionGroup name="row">
                 <div
@@ -640,14 +647,6 @@ async function toggleLock() {
 </template>
 
 <style>
-html {
-    background: transparent !important;
-}
-
-body {
-    background: transparent !important;
-}
-
 .row-move,
 .row-enter-active,
 .row-leave-active {
@@ -671,5 +670,17 @@ body {
     position: absolute;
     left: 0;
     right: 0;
+}
+
+[data-tauri-drag-region] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+[data-tauri-drag-region] button {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
 }
 </style>

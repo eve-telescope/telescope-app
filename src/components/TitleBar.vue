@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { platform } from '@tauri-apps/plugin-os'
 import { Crosshair, Minus, Square, X, Copy, Layers } from 'lucide-vue-next'
@@ -13,7 +13,8 @@ const appWindow = getCurrentWindow()
 const isMac = ref(false)
 const isMaximized = ref(false)
 
-const { isOverlayOpen, toggleOverlay, closeOverlay } = useOverlayWindow()
+const { isOverlayOpen, toggleOverlay, closeOverlay, setupListeners, cleanup } =
+    useOverlayWindow()
 
 onMounted(async () => {
     isMac.value = platform() === 'macos'
@@ -34,6 +35,12 @@ onMounted(async () => {
             console.log('Error closing overlay:', e)
         }
     })
+
+    await setupListeners()
+})
+
+onUnmounted(() => {
+    cleanup()
 })
 
 async function minimize() {

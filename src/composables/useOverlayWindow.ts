@@ -1,77 +1,46 @@
 import { ref } from 'vue'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { invoke } from '@tauri-apps/api/core'
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 
-let overlayWindow: WebviewWindow | null = null
 const isOverlayOpen = ref(false)
-let unlistenCloseRequest: UnlistenFn | null = null
+let unlistenClosed: UnlistenFn | null = null
 
 export function useOverlayWindow() {
+    async function syncState() {
+        isOverlayOpen.value = await invoke<boolean>('is_overlay_open')
+    }
+
     async function openOverlay() {
-        if (overlayWindow) {
-            await overlayWindow.setFocus()
-            return
-        }
-
-        overlayWindow = new WebviewWindow('overlay', {
-            url: '/overlay',
-            title: 'Telescope Overlay',
-            width: 580,
-            height: 450,
-            minWidth: 480,
-            minHeight: 200,
-            resizable: true,
-            decorations: false,
-            transparent: true,
-            alwaysOnTop: true,
-            skipTaskbar: true,
-            shadow: false,
-            x: 100,
-            y: 100,
-        })
-
-        overlayWindow.once('tauri://created', () => {
-            isOverlayOpen.value = true
-        })
-
-        overlayWindow.once('tauri://destroyed', () => {
-            overlayWindow = null
-            isOverlayOpen.value = false
-        })
-
-        // Listen for close request from overlay
-        unlistenCloseRequest = await listen('overlay-close-request', () => {
-            closeOverlay()
-        })
+        isOverlayOpen.value = await invoke<boolean>('open_overlay')
     }
 
     async function closeOverlay() {
-        if (unlistenCloseRequest) {
-            unlistenCloseRequest()
-            unlistenCloseRequest = null
-        }
-        if (overlayWindow) {
-            try {
-                await overlayWindow.close()
-            } catch (e) {
-                // Window might already be closed
-                console.log('Overlay close error (may be expected):', e)
-            }
-            overlayWindow = null
-            isOverlayOpen.value = false
-        }
+        isOverlayOpen.value = await invoke<boolean>('close_overlay')
     }
 
     async function toggleOverlay() {
-        if (overlayWindow) {
-            await closeOverlay()
-        } else {
-            await openOverlay()
-        }
+        isOverlayOpen.value = await invoke<boolean>('toggle_overlay')
     }
 
     async function clearOverlay() {
         await emit('overlay-clear')
+    }
+
+    async function setupListeners() {
+        // Listen for overlay being closed (from overlay's close button or elsewhere)
+        unlistenClosed = await listen('overlay-closed', () => {
+            isOverlayOpen.value = false
+        })
+
+        // Sync initial state
+        await syncState()
+    }
+
+    function cleanup() {
+        if (unlistenClosed) {
+            unlistenClosed()
+            unlistenClosed = null
+        }
     }
 
     return {
@@ -80,5 +49,7 @@ export function useOverlayWindow() {
         closeOverlay,
         toggleOverlay,
         clearOverlay,
+        setupListeners,
+        cleanup,
     }
 }

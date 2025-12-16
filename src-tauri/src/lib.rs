@@ -41,7 +41,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::lookup_pilots,
             commands::clear_cache,
-            commands::check_for_update
+            commands::check_for_update,
+            commands::is_overlay_open,
+            commands::open_overlay,
+            commands::close_overlay,
+            commands::toggle_overlay
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
