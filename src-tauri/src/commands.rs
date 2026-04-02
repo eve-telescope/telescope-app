@@ -7,7 +7,8 @@ use tokio::time::{interval, Duration};
 
 use crate::api::{create_client, esi, zkill};
 use crate::intel::{calculate_threat_level, detect_pilot_flags};
-use crate::models::{CharacterInfo, PilotFlags, PilotIntel};
+use crate::models::{CharacterInfo, DscanParseResult, PilotFlags, PilotIntel, SdeStatus};
+use crate::sde;
 
 const DISPATCH_INTERVAL_MS: u64 = 100;
 
@@ -157,6 +158,28 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
         cache_hits
     );
     Ok(results)
+}
+
+#[tauri::command]
+pub async fn ensure_sde_index(
+    app_dir: tauri::State<'_, std::path::PathBuf>,
+) -> Result<SdeStatus, String> {
+    sde::ensure_sde_index(app_dir.inner().as_path()).await
+}
+
+#[tauri::command]
+pub async fn get_sde_status(
+    app_dir: tauri::State<'_, std::path::PathBuf>,
+) -> Result<SdeStatus, String> {
+    sde::get_sde_status(app_dir.inner().as_path()).await
+}
+
+#[tauri::command]
+pub async fn parse_dscan(
+    app_dir: tauri::State<'_, std::path::PathBuf>,
+    text: String,
+) -> Result<DscanParseResult, String> {
+    sde::parse_dscan(&text, app_dir.inner().as_path())
 }
 
 fn try_from_cache(app: &AppHandle, character_id: Option<i64>) -> Option<PilotIntel> {

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "about", "overlay"],
+  "windows": ["main", "about", "overlay", "networks"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -25,6 +25,7 @@
         { "url": "https://zkillboard.com/*" },
         { "url": "https://*.zkillboard.com/*" },
         { "url": "https://eve-telescope.com/*" },
+        { "url": "https://telescope-web.test/*" },
         { "url": "https://github.com/*" }
       ]
     },
