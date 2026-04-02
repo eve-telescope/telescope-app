@@ -71,8 +71,8 @@ export function useEchoConnection() {
 
         echo = new Echo({
             broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY ?? 'laravel-herd',
-            wsHost: import.meta.env.VITE_REVERB_HOST ?? 'reverb.herd.test',
+            key: import.meta.env.VITE_REVERB_APP_KEY ?? '04pcwy13bvcyjoio6mf6',
+            wsHost: import.meta.env.VITE_REVERB_HOST ?? 'ws.eve-telescope.com',
             wsPort: import.meta.env.VITE_REVERB_PORT ?? 443,
             wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
             forceTLS:
