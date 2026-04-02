@@ -271,7 +271,8 @@ function sortIndicator(key: SortKey) {
             </div>
 
             <div
-                class="min-h-0 flex-1 overflow-hidden border-t border-eve-border"
+                class="min-h-0 flex-1 overflow-hidden"
+                :class="result ? 'border-t border-eve-border' : ''"
             >
                 <div
                     v-if="loading"
