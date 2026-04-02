@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue'
 import type { PilotIntel } from '../types'
+import { getPilotTags } from '../utils/pilotTags'
 
 export interface ThreatCounts {
     extreme: number
@@ -9,13 +10,10 @@ export interface ThreatCounts {
     minimal: number
 }
 
-export interface TagCounts {
-    cyno: number
-    recon: number
-    blops: number
-    capital: number
-    super: number
-    solo: number
+export interface TagCount {
+    tag: string
+    color: string | null
+    count: number
 }
 
 export interface GroupCount {
@@ -34,24 +32,27 @@ export function usePilotCounts(pilots: Ref<PilotIntel[]>) {
         return counts
     })
 
-    const tagCounts = computed<TagCounts>(() => {
-        const counts = {
-            cyno: 0,
-            recon: 0,
-            blops: 0,
-            capital: 0,
-            super: 0,
-            solo: 0,
-        }
+    const tagCounts = computed<TagCount[]>(() => {
+        const counts = new Map<
+            string,
+            { color: string | null; count: number }
+        >()
         for (const p of pilots.value) {
-            if (p.flags.is_super) counts.super++
-            else if (p.flags.is_capital) counts.capital++
-            if (p.flags.is_blops) counts.blops++
-            if (p.flags.is_recon) counts.recon++
-            if (p.flags.is_cyno) counts.cyno++
-            if (p.flags.is_solo) counts.solo++
+            const seen = new Set<string>()
+            for (const t of getPilotTags(p)) {
+                if (seen.has(t.tag)) continue
+                seen.add(t.tag)
+                const existing = counts.get(t.tag)
+                if (existing) {
+                    existing.count++
+                } else {
+                    counts.set(t.tag, { color: t.color, count: 1 })
+                }
+            }
         }
-        return counts
+        return [...counts.entries()]
+            .map(([tag, { color, count }]) => ({ tag, color, count }))
+            .sort((a, b) => b.count - a.count)
     })
 
     const corpCounts = computed<GroupCount[]>(() => {

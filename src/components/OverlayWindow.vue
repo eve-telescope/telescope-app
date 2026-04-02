@@ -6,7 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import type { PilotIntel } from '../types'
 import { getPortraitUrl, getShipIconUrl, getKdRatio } from '../utils/format'
-import { getFlagLabels } from '../utils/intel'
+import { getPilotTags } from '../utils/pilotTags'
 import { usePilotCounts } from '../composables/usePilotCounts'
 import { useSyncedFilters } from '../composables/useSyncedFilters'
 import { usePilotSort } from '../composables/usePilotSort'
@@ -281,64 +281,18 @@ async function toggleLock() {
                 <!-- Tag filters -->
                 <div class="flex items-center gap-1 shrink-0 flex-wrap">
                     <button
-                        v-if="tagCounts.super"
-                        @click="toggleTag('super')"
+                        v-for="t in tagCounts"
+                        :key="t.tag"
+                        @click="toggleTag(t.tag)"
                         class="px-1.5 py-0.5 font-bold rounded transition-colors"
-                        :class="
-                            selectedTags.has('super')
-                                ? 'bg-rose-500/40 text-rose-200'
-                                : 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
-                        "
+                        :style="{
+                            backgroundColor:
+                                (t.color ?? '#94A3B8') +
+                                (selectedTags.has(t.tag) ? '66' : '33'),
+                            color: t.color ?? '#CBD5E1',
+                        }"
                     >
-                        {{ tagCounts.super }} SUPER
-                    </button>
-                    <button
-                        v-if="tagCounts.capital"
-                        @click="toggleTag('capital')"
-                        class="px-1.5 py-0.5 font-bold rounded transition-colors"
-                        :class="
-                            selectedTags.has('capital')
-                                ? 'bg-amber-500/40 text-amber-200'
-                                : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
-                        "
-                    >
-                        {{ tagCounts.capital }} CAPITAL
-                    </button>
-                    <button
-                        v-if="tagCounts.blops"
-                        @click="toggleTag('blops')"
-                        class="px-1.5 py-0.5 font-bold rounded transition-colors"
-                        :class="
-                            selectedTags.has('blops')
-                                ? 'bg-indigo-500/40 text-indigo-200'
-                                : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'
-                        "
-                    >
-                        {{ tagCounts.blops }} BLACK OPS
-                    </button>
-                    <button
-                        v-if="tagCounts.recon"
-                        @click="toggleTag('recon')"
-                        class="px-1.5 py-0.5 font-bold rounded transition-colors"
-                        :class="
-                            selectedTags.has('recon')
-                                ? 'bg-teal-500/40 text-teal-200'
-                                : 'bg-teal-500/20 text-teal-300 hover:bg-teal-500/30'
-                        "
-                    >
-                        {{ tagCounts.recon }} RECON
-                    </button>
-                    <button
-                        v-if="tagCounts.cyno"
-                        @click="toggleTag('cyno')"
-                        class="px-1.5 py-0.5 font-bold rounded transition-colors"
-                        :class="
-                            selectedTags.has('cyno')
-                                ? 'bg-purple-500/40 text-purple-200'
-                                : 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30'
-                        "
-                    >
-                        {{ tagCounts.cyno }} CYNO
+                        {{ t.count }} {{ t.tag }}
                     </button>
                 </div>
             </div>
@@ -495,18 +449,11 @@ async function toggleLock() {
                     <!-- Tags -->
                     <div class="flex flex-wrap gap-0.5 overflow-hidden">
                         <span
-                            v-for="flag in getFlagLabels(pilot.flags)"
-                            :key="flag"
+                            v-for="t in getPilotTags(pilot)"
+                            :key="t.key"
                             class="text-[7px] font-bold shrink-0"
-                            :class="{
-                                'text-purple-400': flag === 'CYNO',
-                                'text-teal-400': flag === 'RECON',
-                                'text-indigo-400': flag === 'BLACK OPS',
-                                'text-amber-400': flag === 'CAPITAL',
-                                'text-rose-400': flag === 'SUPER',
-                                'text-sky-400': flag === 'SOLO',
-                            }"
-                            >{{ flag }}</span
+                            :style="{ color: t.color ?? '#CBD5E1' }"
+                            >{{ t.tag }}</span
                         >
                     </div>
 

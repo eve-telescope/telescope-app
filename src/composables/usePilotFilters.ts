@@ -1,5 +1,6 @@
 import { ref, computed, type Ref } from 'vue'
 import type { PilotIntel } from '../types'
+import { getPilotTagStrings } from '../utils/pilotTags'
 
 export type FilterMode = 'single' | 'multi'
 
@@ -101,20 +102,9 @@ export function usePilotFilters(
         }
 
         if (selectedTags.value.size > 0) {
-            result = result.filter((p) => {
-                const flags = p.flags
-                if (selectedTags.value.has('super') && flags.is_super)
-                    return true
-                if (selectedTags.value.has('capital') && flags.is_capital)
-                    return true
-                if (selectedTags.value.has('blops') && flags.is_blops)
-                    return true
-                if (selectedTags.value.has('recon') && flags.is_recon)
-                    return true
-                if (selectedTags.value.has('cyno') && flags.is_cyno) return true
-                if (selectedTags.value.has('solo') && flags.is_solo) return true
-                return false
-            })
+            result = result.filter((p) =>
+                getPilotTagStrings(p).some((tag) => selectedTags.value.has(tag))
+            )
         }
 
         if (mode === 'single') {

@@ -2,6 +2,13 @@ import { ref, computed, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import type { PilotIntel } from '../types'
+import {
+    lookupIntel,
+    clearEntries,
+    isAuthenticated,
+    entries,
+} from '../stores/intel'
+import { getPilotTagStrings } from '../utils/pilotTags'
 
 export interface LookupProgress {
     current: number
@@ -17,8 +24,8 @@ interface PilotResult {
 interface FilterState {
     threatFilter: string | null
     selectedTags: string[]
-    corpFilter: string | null
-    allianceFilter: string | null
+    selectedCorps: string[]
+    selectedAlliances: string[]
 }
 
 const FILTER_SYNC_EVENT = 'filter-state-sync'
@@ -79,8 +86,8 @@ export function usePilots() {
             emit(FILTER_SYNC_EVENT, {
                 threatFilter: threatFilter.value,
                 selectedTags: [...selectedTags],
-                corpFilter: corpFilter.value,
-                allianceFilter: allianceFilter.value,
+                selectedCorps: [...selectedCorps],
+                selectedAlliances: [...selectedAlliances],
             })
         }
     }
@@ -122,30 +129,14 @@ export function usePilots() {
                     selectedTags.add(tag)
                 }
 
-                corpFilter.value = event.payload.corpFilter
                 selectedCorps.clear()
-                if (event.payload.corpFilter) {
-                    const pilot = pilots.value.find(
-                        (p) =>
-                            p.character.corporation_ticker ===
-                            event.payload.corpFilter
-                    )
-                    if (pilot?.character.corporation_name) {
-                        selectedCorps.add(pilot.character.corporation_name)
-                    }
+                for (const name of event.payload.selectedCorps) {
+                    selectedCorps.add(name)
                 }
 
-                allianceFilter.value = event.payload.allianceFilter
                 selectedAlliances.clear()
-                if (event.payload.allianceFilter) {
-                    const pilot = pilots.value.find(
-                        (p) =>
-                            p.character.alliance_ticker ===
-                            event.payload.allianceFilter
-                    )
-                    if (pilot?.character.alliance_name) {
-                        selectedAlliances.add(pilot.character.alliance_name)
-                    }
+                for (const name of event.payload.selectedAlliances) {
+                    selectedAlliances.add(name)
                 }
 
                 isSyncingFilters = false
@@ -167,6 +158,17 @@ export function usePilots() {
 
     const pilotCount = computed(() => {
         return pilotNames.value.split('\n').filter((n) => n.trim()).length
+    })
+
+    // Prune stale tag filters when intel entries change
+    watch(entries, () => {
+        if (selectedTags.size === 0 || pilots.value.length === 0) return
+        const availableTags = new Set(pilots.value.flatMap(getPilotTagStrings))
+        for (const tag of selectedTags) {
+            if (!availableTags.has(tag)) {
+                selectedTags.delete(tag)
+            }
+        }
     })
 
     const filteredPilots = computed(() => {
@@ -191,29 +193,17 @@ export function usePilots() {
             }
 
             const corpMatch =
-                (selectedCorps.size === 0 && !corpFilter.value) ||
-                selectedCorps.has(p.character.corporation_name || 'Unknown') ||
-                (corpFilter.value &&
-                    p.character.corporation_ticker === corpFilter.value)
+                selectedCorps.size === 0 ||
+                selectedCorps.has(p.character.corporation_name || 'Unknown')
 
             const allianceMatch =
-                (selectedAlliances.size === 0 && !allianceFilter.value) ||
-                (p.character.alliance_name &&
-                    selectedAlliances.has(p.character.alliance_name)) ||
-                (allianceFilter.value &&
-                    p.character.alliance_ticker === allianceFilter.value)
+                selectedAlliances.size === 0 ||
+                (p.character.alliance_name != null &&
+                    selectedAlliances.has(p.character.alliance_name))
 
-            let tagMatch = selectedTags.size === 0
-            if (!tagMatch) {
-                const flags = p.flags
-                if (selectedTags.has('cyno') && flags.is_cyno) tagMatch = true
-                if (selectedTags.has('recon') && flags.is_recon) tagMatch = true
-                if (selectedTags.has('blops') && flags.is_blops) tagMatch = true
-                if (selectedTags.has('capital') && flags.is_capital)
-                    tagMatch = true
-                if (selectedTags.has('super') && flags.is_super) tagMatch = true
-                if (selectedTags.has('solo') && flags.is_solo) tagMatch = true
-            }
+            const tagMatch =
+                selectedTags.size === 0 ||
+                getPilotTagStrings(p).some((tag) => selectedTags.has(tag))
 
             return corpMatch && allianceMatch && tagMatch
         })
@@ -231,12 +221,27 @@ export function usePilots() {
         pilots.value = []
         error.value = null
         progress.value = null
+        clearEntries()
         clearFilters()
 
         try {
             await invoke('lookup_pilots', {
                 namesText: names,
             })
+
+            // After scan completes, look up intel for all scanned entities
+            if (isAuthenticated.value) {
+                const entityIds = pilots.value.flatMap((p) =>
+                    [
+                        p.character.id,
+                        p.character.corporation_id,
+                        p.character.alliance_id,
+                    ].filter((id): id is number => id != null)
+                )
+                if (entityIds.length > 0) {
+                    await lookupIntel([...new Set(entityIds)])
+                }
+            }
         } catch (e) {
             console.error('Failed to lookup pilots:', e)
             error.value = String(e)
@@ -254,16 +259,8 @@ export function usePilots() {
     function toggleCorp(name: string) {
         if (selectedCorps.has(name)) {
             selectedCorps.delete(name)
-            if (selectedCorps.size === 0) {
-                corpFilter.value = null
-            }
         } else {
-            selectedCorps.clear()
             selectedCorps.add(name)
-            const pilot = pilots.value.find(
-                (p) => p.character.corporation_name === name
-            )
-            corpFilter.value = pilot?.character.corporation_ticker || null
         }
         broadcastFilterState()
     }
@@ -271,16 +268,8 @@ export function usePilots() {
     function toggleAlliance(name: string) {
         if (selectedAlliances.has(name)) {
             selectedAlliances.delete(name)
-            if (selectedAlliances.size === 0) {
-                allianceFilter.value = null
-            }
         } else {
-            selectedAlliances.clear()
             selectedAlliances.add(name)
-            const pilot = pilots.value.find(
-                (p) => p.character.alliance_name === name
-            )
-            allianceFilter.value = pilot?.character.alliance_ticker || null
         }
         broadcastFilterState()
     }
