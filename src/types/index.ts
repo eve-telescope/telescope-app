@@ -62,3 +62,138 @@ export interface PilotIntel {
     flags: PilotFlags
     error: string | null
 }
+
+export interface SdeStatus {
+    build_number: number | null
+    latest_build_number: number | null
+    ready: boolean
+    updating: boolean
+    last_error: string | null
+}
+
+export interface DscanEntry {
+    type_id: number | null
+    name: string
+    type_name: string
+    distance: string | null
+    group_name: string | null
+    category_name: string | null
+    is_ship: boolean
+}
+
+export interface DscanParseResult {
+    total_rows: number
+    ship_count: number
+    entries: DscanEntry[]
+}
+
+export type EntityType = 'character' | 'corporation' | 'alliance'
+
+export type PermissionLevel = 'viewer' | 'member' | 'manager'
+
+export type AnnotationScope = EntityType
+
+export interface IntelNetwork {
+    id: number
+    name: string
+    slug: string
+    entries_count: number
+}
+
+export interface IntelEntry {
+    id: number
+    intel_network_id: number
+    network_name: string
+    entity_type: EntityType
+    entity_id: number
+    entity_name: string
+    color: string | null
+    label: string | null
+    notes: string | null
+}
+
+export interface IntelAnnotation {
+    id: number
+    networkId: number
+    networkName: string
+    targetType: EntityType
+    targetId: number
+    targetName: string
+    tags: string[]
+    note: string | null
+    color: string | null
+    createdBy: { id: number; characterName: string } | null
+}
+
+export interface ResolvedIntelAnnotation {
+    key: string
+    scope: AnnotationScope
+    annotation: IntelAnnotation
+}
+
+export interface IntelEntryDetail {
+    id: number
+    entity_type: EntityType
+    entity_id: number
+    entity_name: string
+    color: string | null
+    label: string | null
+    notes: string | null
+    added_by: { id: number; character_name: string } | null
+}
+
+export interface EntityInfo {
+    id: number
+    name: string
+    type: EntityType
+    ticker?: string
+    corporation?: { id: number; name: string; ticker: string } | null
+    alliance?: { id: number; name: string; ticker: string } | null
+}
+
+export interface SearchResult {
+    id: number
+    name: string
+    category: EntityType
+    ticker?: string
+    corporation?: { id: number; name: string; ticker: string } | null
+    alliance?: { id: number; name: string; ticker: string } | null
+}
+
+export interface NetworkAccess {
+    id: number
+    accessible_type: string
+    accessible_id: number
+    permission: PermissionLevel
+    is_owner: boolean
+    expires_at: string | null
+    entity: EntityInfo | null
+}
+
+export interface ScanSubmitter {
+    id: number
+    character_name: string
+}
+
+export interface NetworkScan {
+    id: number
+    scan_type: 'local' | 'dscan'
+    raw_text: string
+    solar_system: string | null
+    created_at: string
+    submitted_by: ScanSubmitter | null
+}
+
+export interface PaginatedScans {
+    data: NetworkScan[]
+    current_page: number
+    last_page: number
+}
+
+export interface NetworkDetail {
+    id: number
+    name: string
+    slug: string
+    entries: IntelEntryDetail[]
+    accesses: NetworkAccess[]
+}
