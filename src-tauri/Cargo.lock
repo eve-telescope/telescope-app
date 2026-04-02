@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Telescope"
-version = "0.1.5"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "futures",
@@ -21,6 +21,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-opener",
  "tauri-plugin-os",
+ "tauri-plugin-single-instance",
  "tauri-plugin-store",
  "tauri-plugin-vue",
  "tauri-plugin-window-state",
@@ -5042,6 +5043,21 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tauri-plugin-single-instance"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc61e4822b8f74d68278e09161d3e3fdd1b14b9eb781e24edccaabf10c420e8c"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.18",
+ "tracing",
+ "windows-sys 0.60.2",
+ "zbus",
 ]
 
 [[package]]

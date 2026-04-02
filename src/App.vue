@@ -75,7 +75,6 @@ async function handleScanInput(text: string) {
     if (isAuthenticated.value && activeNetworkId.value != null) {
         shareScan(activeNetworkId.value, detectScanInputKind(text), text)
             .then((scan) => {
-                // Update local history since .toOthers() excludes us from Echo
                 latestSharedScan.value = scan
             })
             .catch(() => {})
