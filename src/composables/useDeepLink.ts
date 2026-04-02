@@ -1,10 +1,10 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { onOpenUrl, getCurrent } from '@tauri-apps/plugin-deep-link'
 import { parseDeepLinkUrl } from '../utils/share'
+import { setApiToken } from '../stores/intel'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { info, error as logError, warn } from '@tauri-apps/plugin-log'
-
-const API_BASE_URL = 'https://eve-telescope.com'
+import { API_BASE_URL } from '../utils/config'
 
 interface ShareData {
     code: string
@@ -43,29 +43,37 @@ export function useDeepLink(onPilotsReceived: (pilots: string) => void) {
     async function handleUrl(url: string) {
         await info(`[DeepLink] Received URL: ${url}`)
         lastUrl.value = url
-        const code = parseDeepLinkUrl(url)
-        await info(`[DeepLink] Parsed code: ${code}`)
+        const result = parseDeepLinkUrl(url)
+        await info(`[DeepLink] Parsed result: ${JSON.stringify(result)}`)
 
-        if (!code) {
-            await warn('[DeepLink] Failed to parse code from URL')
+        if (!result) {
+            await warn('[DeepLink] Failed to parse URL')
             return
         }
 
-        loading.value = true
-        try {
-            await info('[DeepLink] Fetching share data...')
-            const share = await fetchShare(code)
-            await info(`[DeepLink] Share data: ${JSON.stringify(share)}`)
-            if (share?.pilots) {
-                await info(
-                    `[DeepLink] Calling onPilotsReceived with ${share.pilots.length} pilots`
-                )
-                onPilotsReceived(share.pilots.join('\n'))
+        if (result.type === 'auth') {
+            await info('[DeepLink] Received auth token')
+            await setApiToken(result.token)
+            return
+        }
+
+        if (result.type === 'share') {
+            loading.value = true
+            try {
+                await info('[DeepLink] Fetching share data...')
+                const share = await fetchShare(result.code)
+                await info(`[DeepLink] Share data: ${JSON.stringify(share)}`)
+                if (share?.pilots) {
+                    await info(
+                        `[DeepLink] Calling onPilotsReceived with ${share.pilots.length} pilots`
+                    )
+                    onPilotsReceived(share.pilots.join('\n'))
+                }
+            } catch (e) {
+                await logError(`[DeepLink] Error fetching share: ${e}`)
+            } finally {
+                loading.value = false
             }
-        } catch (e) {
-            await logError(`[DeepLink] Error fetching share: ${e}`)
-        } finally {
-            loading.value = false
         }
     }
 

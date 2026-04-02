@@ -1,8 +1,8 @@
-import { ref, watch } from 'vue'
-import { LazyStore } from '@tauri-apps/plugin-store'
-import { info, error as logError } from '@tauri-apps/plugin-log'
+import { createStore } from '@tauri-store/vue'
+import { computed } from 'vue'
 
 export interface Settings {
+    [key: string]: unknown
     globalShortcut: string
     autoScanOnShortcut: boolean
     sortColumn: string
@@ -10,82 +10,44 @@ export interface Settings {
     overlayLocked: boolean
 }
 
-const DEFAULT_SETTINGS: Settings = {
+export const settingsStore = createStore<Settings>('settings', {
     globalShortcut: 'CommandOrControl+Shift+V',
     autoScanOnShortcut: true,
     sortColumn: 'threat',
     sortDirection: 'desc',
     overlayLocked: false,
-}
+})
 
-const store = new LazyStore('settings.json')
-
-const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
-const loaded = ref(false)
+const startPromise = settingsStore.$tauri.start()
 
 export function useSettings() {
-    async function loadSettings() {
-        try {
-            const stored = await store.get<Settings>('settings')
-            if (stored) {
-                settings.value = { ...DEFAULT_SETTINGS, ...stored }
-                info('Settings loaded from store')
-            } else {
-                settings.value = { ...DEFAULT_SETTINGS }
-                info('Using default settings')
-            }
-            loaded.value = true
-        } catch (e) {
-            logError(`Failed to load settings: ${e}`)
-            settings.value = { ...DEFAULT_SETTINGS }
-            loaded.value = true
-        }
-    }
-
-    async function saveSettings() {
-        try {
-            await store.set('settings', settings.value)
-            await store.save()
-            info('Settings saved')
-        } catch (e) {
-            logError(`Failed to save settings: ${e}`)
-        }
-    }
+    const settings = computed(() => settingsStore.value)
+    const loaded = computed(() => true)
 
     async function updateSetting<K extends keyof Settings>(
         key: K,
         value: Settings[K]
     ) {
-        settings.value[key] = value
-        await saveSettings()
+        await startPromise
+        settingsStore.value = { ...settingsStore.value, [key]: value }
     }
 
     async function resetSettings() {
-        settings.value = { ...DEFAULT_SETTINGS }
-        await saveSettings()
-        info('Settings reset to defaults')
-    }
-
-    watch(
-        settings,
-        () => {
-            if (loaded.value) {
-                saveSettings()
-            }
-        },
-        { deep: true }
-    )
-
-    if (!loaded.value) {
-        loadSettings()
+        await startPromise
+        settingsStore.value = {
+            globalShortcut: 'CommandOrControl+Shift+V',
+            autoScanOnShortcut: true,
+            sortColumn: 'threat',
+            sortDirection: 'desc',
+            overlayLocked: false,
+        }
     }
 
     return {
         settings,
         loaded,
-        loadSettings,
-        saveSettings,
         updateSetting,
         resetSettings,
+        settingsStore,
     }
 }

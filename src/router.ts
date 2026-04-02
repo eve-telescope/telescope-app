@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import AboutWindow from './components/AboutWindow.vue'
 import OverlayWindow from './components/OverlayWindow.vue'
+import NetworkManager from './components/NetworkManager.vue'
 
 const router = createRouter({
     history: createWebHistory(),
@@ -17,6 +18,10 @@ const router = createRouter({
         {
             path: '/overlay',
             component: OverlayWindow,
+        },
+        {
+            path: '/networks',
+            component: NetworkManager,
         },
     ],
 })
