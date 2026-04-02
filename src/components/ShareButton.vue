@@ -6,6 +6,7 @@ import { createShare } from '../utils/share'
 
 const props = defineProps<{
     pilotNames: string
+    disabled?: boolean
 }>()
 
 const state = ref<'idle' | 'loading' | 'copied' | 'error'>('idle')
@@ -38,7 +39,7 @@ async function share() {
             'border-green-500/50 text-green-400': state === 'copied',
             'border-red-500/50 text-red-400': state === 'error',
         }"
-        :disabled="state === 'loading'"
+        :disabled="state === 'loading' || props.disabled"
         @click="share"
     >
         <Loader2 v-if="state === 'loading'" class="w-3.5 h-3.5 animate-spin" />
