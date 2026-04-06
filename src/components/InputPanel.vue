@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { X, Loader2, Radar, Users } from 'lucide-vue-next'
+import { X, Loader2, Radar, Users, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import type { PilotIntel, NetworkScan } from '../types'
@@ -69,6 +69,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 // Scan history
 const recentScans = ref<NetworkScan[]>([])
+const refreshingScans = ref(false)
 
 async function loadScans() {
     const id = activeNetworkId.value
@@ -76,11 +77,14 @@ async function loadScans() {
         recentScans.value = []
         return
     }
+    refreshingScans.value = true
     try {
         const result = await fetchNetworkScans(id, 1)
         recentScans.value = result.data.slice(0, 10)
     } catch {
         recentScans.value = []
+    } finally {
+        refreshingScans.value = false
     }
 }
 
@@ -198,11 +202,22 @@ function lineCount(text: string): number {
             v-if="isAuthenticated && activeNetwork && recentScans.length > 0"
             class="flex flex-col h-52 overflow-hidden shrink-0"
         >
-            <h3
-                class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3 px-3 pt-3 pb-1.5 shrink-0"
-            >
-                RECENT SCANS
-            </h3>
+            <div class="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0">
+                <h3 class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3">
+                    RECENT SCANS
+                </h3>
+                <button
+                    class="p-0.5 rounded text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5 transition-colors disabled:opacity-50"
+                    :disabled="refreshingScans"
+                    title="Refresh scans"
+                    @click="loadScans"
+                >
+                    <RefreshCw
+                        class="w-3 h-3"
+                        :class="refreshingScans ? 'animate-spin' : ''"
+                    />
+                </button>
+            </div>
             <div class="flex-1 overflow-y-auto">
                 <button
                     v-for="scan in recentScans"

@@ -9,6 +9,7 @@ import {
     Network,
     LogOut,
     Zap,
+    RefreshCw,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -106,6 +107,21 @@ async function handleSelectNetwork(networkId: number) {
         error.value = String(e)
     } finally {
         loading.value = false
+    }
+}
+
+const refreshing = ref(false)
+
+async function handleRefreshNetwork() {
+    const net = currentNetwork.value
+    if (!net) return
+    refreshing.value = true
+    try {
+        await selectNetwork(net.id)
+    } catch (e) {
+        error.value = String(e)
+    } finally {
+        refreshing.value = false
     }
 }
 
@@ -566,6 +582,19 @@ watch(
                                     >
                                 </div>
                             </div>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                class="text-eve-text-3 hover:text-eve-text-1 h-7 w-7 p-0"
+                                :disabled="refreshing"
+                                title="Refresh"
+                                @click="handleRefreshNetwork"
+                            >
+                                <RefreshCw
+                                    class="w-3.5 h-3.5"
+                                    :class="refreshing ? 'animate-spin' : ''"
+                                />
+                            </Button>
                             <Button
                                 v-if="activeNetworkId === currentNetwork.id"
                                 variant="ghost"
