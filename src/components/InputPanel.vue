@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useNow } from '@vueuse/core'
 import { X, Loader2, Radar, Users, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -98,8 +99,10 @@ watch(latestSharedScan, (scan) => {
     }
 })
 
+const now = useNow({ interval: 30_000 })
+
 function relativeTime(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime()
+    const diff = now.value.getTime() - new Date(iso).getTime()
     const seconds = Math.floor(diff / 1000)
     if (seconds < 60) return 'now'
     const minutes = Math.floor(seconds / 60)
