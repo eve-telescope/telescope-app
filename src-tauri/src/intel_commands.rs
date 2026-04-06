@@ -424,6 +424,18 @@ pub async fn fetch_network_scans(
 }
 
 #[tauri::command]
+pub async fn fetch_network_scan(
+    state: State<'_, Mutex<IntelState>>,
+    network_id: i64,
+    scan_id: i64,
+) -> Result<NetworkScan, String> {
+    let (base_url, token) = api_config(&state).await?;
+    let client = telescope_api::build_client(&token)?;
+
+    telescope_api::fetch_scan(&client, &base_url, network_id, scan_id).await
+}
+
+#[tauri::command]
 pub async fn search_entities(
     state: State<'_, Mutex<IntelState>>,
     query: String,

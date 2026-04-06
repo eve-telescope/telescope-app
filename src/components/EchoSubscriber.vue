@@ -1,40 +1,51 @@
 <script setup lang="ts">
 import { useEcho } from '@laravel/echo-vue'
 import {
-    onEntryCreated,
-    onEntryUpdated,
     onEntryDeleted,
     onScanShared,
+    fetchNetworkScan,
+    selectNetwork,
+    activeNetworkId,
 } from '../stores/intel'
-import type { IntelEntry, NetworkScan } from '../types'
 
 const props = defineProps<{ networkId: number }>()
 
 const channel = `intel-network.${props.networkId}`
 
-useEcho<{ entry: IntelEntry }>(
+// Events carry only IDs. Clients refetch the full data from the API.
+
+// Refetch the selected network detail on any entry/annotation change.
+useEcho<{ entry_id: number }>(
     channel,
-    ['IntelEntryCreated', 'AnnotationCreated'],
-    (e) => onEntryCreated(e.entry)
+    [
+        'IntelEntryCreated',
+        'IntelEntryUpdated',
+        'AnnotationCreated',
+        'AnnotationUpdated',
+    ],
+    async () => {
+        if (activeNetworkId.value != null) {
+            await selectNetwork(activeNetworkId.value).catch(() => {})
+        }
+    }
 )
 
-useEcho<{ entry: IntelEntry }>(
-    channel,
-    ['IntelEntryUpdated', 'AnnotationUpdated'],
-    (e) => onEntryUpdated(e.entry)
-)
-
+// Deletions can be handled locally without a refetch since we know the ID.
 useEcho<{ entry_id: number }>(
     channel,
     ['IntelEntryDeleted', 'AnnotationDeleted'],
     (e) => onEntryDeleted(e.entry_id)
 )
 
-useEcho<{ scan: NetworkScan }>(
-    channel,
-    'ScanShared',
-    (e) => onScanShared(e.scan)
-)
+// Fetch the single scan by ID when a new one is shared.
+useEcho<{ scan_id: number }>(channel, 'ScanShared', async (e) => {
+    try {
+        const scan = await fetchNetworkScan(props.networkId, e.scan_id)
+        onScanShared(scan)
+    } catch {
+        // ignore
+    }
+})
 </script>
 
 <template>

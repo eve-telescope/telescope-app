@@ -91,6 +91,7 @@ pub fn run() {
             intel_commands::search_entities,
             intel_commands::share_scan,
             intel_commands::fetch_network_scans,
+            intel_commands::fetch_network_scan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -390,6 +390,13 @@ export async function fetchNetworkScans(networkId: number, page: number = 1) {
     })
 }
 
+export async function fetchNetworkScan(networkId: number, scanId: number) {
+    return invoke<NetworkScan>('fetch_network_scan', {
+        networkId,
+        scanId,
+    })
+}
+
 export function onScanShared(scan: NetworkScan) {
     latestSharedScan.value = scan
 }

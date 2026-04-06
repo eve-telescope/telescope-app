@@ -309,6 +309,26 @@ pub async fn fetch_scans(
     resp.json().await.map_err(|e| e.to_string())
 }
 
+pub async fn fetch_scan(
+    client: &Client,
+    base_url: &str,
+    network_id: i64,
+    scan_id: i64,
+) -> Result<NetworkScan, String> {
+    let resp = client
+        .get(format!(
+            "{}/api/networks/{}/scans/{}",
+            base_url, network_id, scan_id
+        ))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("API error: {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Entity search
 // ---------------------------------------------------------------------------
