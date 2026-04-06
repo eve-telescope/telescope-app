@@ -33,8 +33,11 @@ export function useEchoConnection() {
 
             configureEcho({
                 broadcaster: 'reverb',
-                key: import.meta.env.VITE_REVERB_APP_KEY ?? '04pcwy13bvcyjoio6mf6',
-                wsHost: import.meta.env.VITE_REVERB_HOST ?? 'ws.eve-telescope.com',
+                key:
+                    import.meta.env.VITE_REVERB_APP_KEY ??
+                    '04pcwy13bvcyjoio6mf6',
+                wsHost:
+                    import.meta.env.VITE_REVERB_HOST ?? 'ws.eve-telescope.com',
                 wsPort: Number(import.meta.env.VITE_REVERB_PORT ?? 443),
                 wssPort: Number(import.meta.env.VITE_REVERB_PORT ?? 443),
                 forceTLS:

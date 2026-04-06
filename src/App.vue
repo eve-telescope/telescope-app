@@ -69,7 +69,9 @@ async function handleScanInput(text: string) {
 
     // Auto-share with active network — the Echo broadcast will update the history
     if (isAuthenticated.value && activeNetworkId.value != null) {
-        shareScan(activeNetworkId.value, detectScanInputKind(text), text).catch(() => {})
+        shareScan(activeNetworkId.value, detectScanInputKind(text), text).catch(
+            () => {}
+        )
     }
 }
 

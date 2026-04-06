@@ -205,8 +205,12 @@ function lineCount(text: string): number {
             v-if="isAuthenticated && activeNetwork && recentScans.length > 0"
             class="flex flex-col h-52 overflow-hidden shrink-0"
         >
-            <div class="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0">
-                <h3 class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3">
+            <div
+                class="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0"
+            >
+                <h3
+                    class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
+                >
                     RECENT SCANS
                 </h3>
                 <button
