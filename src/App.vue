@@ -6,7 +6,8 @@ import { useGlobalShortcut } from './composables/useGlobalShortcut'
 import { useDeepLink } from './composables/useDeepLink'
 import { useUpdateChecker } from './composables/useUpdateChecker'
 import { useOverlayWindow } from './composables/useOverlayWindow'
-import { useEchoConnection } from './composables/useEcho'
+import { useEchoConnection, echoReady } from './composables/useEcho'
+import EchoSubscriber from './components/EchoSubscriber.vue'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import TitleBar from './components/TitleBar.vue'
 import InputPanel from './components/InputPanel.vue'
@@ -18,12 +19,7 @@ import NetworkManager from './components/NetworkManager.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DscanPanel from './components/DscanPanel.vue'
 import { detectScanInputKind } from './utils/scanInput'
-import {
-    isAuthenticated,
-    activeNetworkId,
-    shareScan,
-    latestSharedScan,
-} from './stores/intel'
+import { isAuthenticated, activeNetworkId, shareScan } from './stores/intel'
 
 const {
     pilotNames,
@@ -71,13 +67,9 @@ async function loadScan(text: string) {
 async function handleScanInput(text: string) {
     await loadScan(text)
 
-    // Auto-share with active network
+    // Auto-share with active network — the Echo broadcast will update the history
     if (isAuthenticated.value && activeNetworkId.value != null) {
-        shareScan(activeNetworkId.value, detectScanInputKind(text), text)
-            .then((scan) => {
-                latestSharedScan.value = scan
-            })
-            .catch(() => {})
+        shareScan(activeNetworkId.value, detectScanInputKind(text), text).catch(() => {})
     }
 }
 
@@ -191,6 +183,13 @@ useEchoConnection()
                 />
             </TabsContent>
         </div>
+
+        <!-- Echo subscriber, re-mounts when active network changes -->
+        <EchoSubscriber
+            v-if="echoReady && activeNetworkId != null"
+            :key="activeNetworkId"
+            :network-id="activeNetworkId"
+        />
 
         <!-- Update Modal -->
         <UpdateModal

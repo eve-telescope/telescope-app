@@ -13,6 +13,7 @@
         "lint": "eslint --fix"
     },
     "dependencies": {
+        "@laravel/echo-vue": "^2.3.3",
         "@tailwindcss/vite": "^4.2.2",
         "@tanstack/vue-table": "^8.21.3",
         "@tauri-apps/api": "^2",
