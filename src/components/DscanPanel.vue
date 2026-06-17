@@ -1,389 +1,445 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Radar, Ship } from 'lucide-vue-next'
-import type { DscanParseResult, SdeStatus } from '../types'
-
-type SortKey =
-    | 'type_id'
-    | 'name'
-    | 'type_name'
-    | 'group_name'
-    | 'category_name'
-    | 'distance'
+import {
+    Radar,
+    Ship,
+    Boxes,
+    X,
+    type LucideProps,
+    Rocket,
+    Swords,
+    ShieldHalf,
+    Shield,
+    Crosshair,
+    Zap,
+    Eye,
+    Bomb,
+    HeartPulse,
+    Anchor,
+    Truck,
+    Pickaxe,
+    CircleDot,
+    Satellite,
+} from 'lucide-vue-next'
+import type { FunctionalComponent } from 'vue'
+import { Checkbox } from '@/components/ui/checkbox'
+import { getShipIconUrl } from '../utils/format'
+import type { DscanParseResult } from '../types'
 
 const props = defineProps<{
     rawInput: string
     result: DscanParseResult | null
-    sdeStatus?: SdeStatus | null
     loading: boolean
-    syncing?: boolean
     error: string | null
 }>()
 
-const nonShipCount = computed(
-    () => (props.result?.total_rows ?? 0) - (props.result?.ship_count ?? 0)
+const showOther = ref(false)
+const selectedClass = ref<string | null>(null)
+
+// Map an EVE ship class (group name) to a fitting icon. Rules are checked in
+// order, so more specific classes must come before broader ones (e.g.
+// "battlecruiser" before "cruiser").
+const CLASS_ICON_RULES: [string, FunctionalComponent<LucideProps>][] = [
+    ['logistic', HeartPulse],
+    ['force auxiliary', HeartPulse],
+    ['capsule', CircleDot],
+    ['interceptor', Zap],
+    ['interdictor', Crosshair],
+    ['covert', Eye],
+    ['recon', Eye],
+    ['stealth', Bomb],
+    ['bomber', Bomb],
+    ['electronic', Satellite],
+    ['titan', Anchor],
+    ['supercarrier', Anchor],
+    ['carrier', Anchor],
+    ['dreadnought', Anchor],
+    ['capital', Anchor],
+    ['freighter', Truck],
+    ['industrial', Truck],
+    ['transport', Truck],
+    ['hauler', Truck],
+    ['mining', Pickaxe],
+    ['barge', Pickaxe],
+    ['exhumer', Pickaxe],
+    ['command', Swords],
+    ['destroyer', Swords],
+    ['battlecruiser', ShieldHalf],
+    ['marauder', Shield],
+    ['battleship', Shield],
+    ['frigate', Rocket],
+    ['shuttle', Rocket],
+]
+
+function classIcon(name: string): FunctionalComponent<LucideProps> {
+    const lower = name.toLowerCase()
+    for (const [keyword, icon] of CLASS_ICON_RULES) {
+        if (lower.includes(keyword)) {
+            return icon
+        }
+    }
+    return Ship
+}
+
+function toggleClass(name: string) {
+    selectedClass.value = selectedClass.value === name ? null : name
+}
+
+const shipEntries = computed(
+    () => props.result?.entries.filter((e) => e.is_ship) ?? []
+)
+const otherEntries = computed(
+    () => props.result?.entries.filter((e) => !e.is_ship) ?? []
 )
 
-const shipGroupSummary = computed(() => {
-    const counts = new Map<string, number>()
-
-    for (const entry of props.result?.entries ?? []) {
-        if (!entry.is_ship) {
-            continue
-        }
-
-        const key = entry.group_name ?? 'Unknown Ship Class'
-        counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-
-    return [...counts.entries()]
-        .map(([group, count]) => ({ group, count }))
-        .sort((a, b) => b.count - a.count || a.group.localeCompare(b.group))
-})
-
-const categorySummary = computed(() => {
-    const counts = new Map<string, number>()
-
-    for (const entry of props.result?.entries ?? []) {
-        const key = entry.category_name ?? 'Unknown'
-        counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-
-    return [...counts.entries()]
-        .map(([category, count]) => ({ category, count }))
-        .sort(
-            (a, b) => b.count - a.count || a.category.localeCompare(b.category)
-        )
-})
-
-const topShipGroups = computed(() => shipGroupSummary.value.slice(0, 8))
-const topCategories = computed(() => categorySummary.value.slice(0, 6))
-
-const sortKey = ref<SortKey>('distance')
-const sortDirection = ref<'asc' | 'desc'>('asc')
-
-function parseDistanceToMeters(distance: string | null): number {
-    if (!distance || distance === '—') {
-        return Number.POSITIVE_INFINITY
-    }
-
-    const normalized = distance.replace(',', '.').trim()
-    const match = normalized.match(/^([\d.]+)\s*(m|km|AU)$/i)
-    if (!match) {
-        return Number.POSITIVE_INFINITY
-    }
-
-    const value = Number.parseFloat(match[1])
-    const unit = match[2].toLowerCase()
-    if (Number.isNaN(value)) {
-        return Number.POSITIVE_INFINITY
-    }
-
-    if (unit === 'm') return value
-    if (unit === 'km') return value * 1000
-    return value * 149_597_870_700
+interface TypeBucket {
+    type_id: number | null
+    type_name: string
+    subtitle: string
+    count: number
 }
 
-function compareValues(a: string | number, b: string | number) {
-    if (typeof a === 'number' && typeof b === 'number') {
-        return a - b
+function bucketByType(
+    entries: DscanParseResult['entries'],
+    subtitleOf: (e: DscanParseResult['entries'][number]) => string
+): TypeBucket[] {
+    const map = new Map<string, TypeBucket>()
+
+    for (const entry of entries) {
+        const bucket = map.get(entry.type_name)
+        if (bucket) {
+            bucket.count += 1
+        } else {
+            map.set(entry.type_name, {
+                type_id: entry.type_id,
+                type_name: entry.type_name,
+                subtitle: subtitleOf(entry),
+                count: 1,
+            })
+        }
     }
 
-    return String(a).localeCompare(String(b), undefined, {
-        numeric: true,
-        sensitivity: 'base',
-    })
+    return [...map.values()].sort(
+        (a, b) => b.count - a.count || a.type_name.localeCompare(b.type_name)
+    )
 }
 
-const sortedEntries = computed(() => {
-    const entries = [...(props.result?.entries ?? [])]
+// "24 Sabres", "30 Drakes" — instances per specific ship type.
+const shipTypes = computed(() =>
+    bucketByType(shipEntries.value, (e) => e.group_name ?? 'Unknown class')
+)
 
-    entries.sort((a, b) => {
-        let comparison = 0
+// Ship types filtered by the selected class (subtitle is the group name).
+const visibleShipTypes = computed(() =>
+    selectedClass.value
+        ? shipTypes.value.filter((t) => t.subtitle === selectedClass.value)
+        : shipTypes.value
+)
 
-        switch (sortKey.value) {
-            case 'type_id':
-                comparison = compareValues(
-                    a.type_id ?? Number.POSITIVE_INFINITY,
-                    b.type_id ?? Number.POSITIVE_INFINITY
-                )
-                break
-            case 'distance':
-                comparison = compareValues(
-                    parseDistanceToMeters(a.distance),
-                    parseDistanceToMeters(b.distance)
-                )
-                break
-            case 'name':
-                comparison = compareValues(a.name, b.name)
-                break
-            case 'type_name':
-                comparison = compareValues(a.type_name, b.type_name)
-                break
-            case 'group_name':
-                comparison = compareValues(
-                    a.group_name ?? 'Unknown',
-                    b.group_name ?? 'Unknown'
-                )
-                break
-            case 'category_name':
-                comparison = compareValues(
-                    a.category_name ?? 'Unknown',
-                    b.category_name ?? 'Unknown'
-                )
-                break
-        }
-
-        if (comparison === 0) {
-            comparison = compareValues(a.name, b.name)
-        }
-
-        return sortDirection.value === 'asc' ? comparison : -comparison
-    })
-
-    return entries
+// "20 Cruisers", "25 Logistics" — instances per ship class.
+const shipClasses = computed(() => {
+    const map = new Map<string, number>()
+    for (const entry of shipEntries.value) {
+        const key = entry.group_name ?? 'Unknown class'
+        map.set(key, (map.get(key) ?? 0) + 1)
+    }
+    return [...map.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 })
 
-function toggleSort(nextKey: SortKey) {
-    if (sortKey.value === nextKey) {
-        sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
-        return
-    }
+const maxClassCount = computed(() =>
+    shipClasses.value.reduce((max, c) => Math.max(max, c.count), 0)
+)
 
-    sortKey.value = nextKey
-    sortDirection.value = nextKey === 'distance' ? 'asc' : 'desc'
+function classBarWidth(count: number): string {
+    if (maxClassCount.value === 0) return '0%'
+    return `${Math.max(4, (count / maxClassCount.value) * 100)}%`
 }
 
-function sortIndicator(key: SortKey) {
-    if (sortKey.value !== key) {
-        return ''
-    }
+const otherTypes = computed(() =>
+    bucketByType(otherEntries.value, (e) => e.category_name ?? 'Unknown')
+)
 
-    return sortDirection.value === 'asc' ? ' ↑' : ' ↓'
+const maxShipCount = computed(() =>
+    shipTypes.value.reduce((max, t) => Math.max(max, t.count), 0)
+)
+
+function barWidth(count: number): string {
+    if (maxShipCount.value === 0) return '0%'
+    return `${Math.max(6, (count / maxShipCount.value) * 100)}%`
 }
 </script>
 
 <template>
     <section class="flex h-full flex-col overflow-hidden bg-eve-bg-0">
-        <div class="flex h-full w-full flex-col overflow-hidden">
-            <div
-                v-if="error"
-                class="border-b border-eve-red/20 bg-eve-red/8 px-5 py-3 text-sm text-eve-red"
-            >
-                {{ error }}
-            </div>
+        <div
+            v-if="error"
+            class="border-b border-eve-red/20 bg-eve-red/8 px-5 py-3 text-sm text-eve-red"
+        >
+            {{ error }}
+        </div>
 
+        <!-- Loading -->
+        <div
+            v-if="loading"
+            class="flex h-full items-center justify-center text-sm text-eve-text-3"
+        >
+            Parsing directional scan...
+        </div>
+
+        <!-- Empty -->
+        <div
+            v-else-if="!result"
+            class="flex h-full flex-col items-center justify-center gap-4 text-eve-text-3"
+        >
+            <Radar class="h-16 w-16 opacity-20" :stroke-width="1" />
+            <div class="text-center">
+                <p class="mb-1 text-sm text-eve-text-2">No D-scan results</p>
+                <p class="text-xs">Paste directional scan output to begin</p>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <!-- Headline counts -->
             <div
-                v-if="result"
-                class="grid grid-cols-3 gap-8 border-b border-eve-border px-5 py-4"
+                class="flex flex-none items-end gap-8 border-b border-eve-border px-5 py-4"
             >
                 <div>
                     <div
-                        class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
-                    >
-                        TOTAL ROWS
-                    </div>
-                    <div class="mt-1 text-2xl font-semibold text-eve-text-1">
-                        {{ result.total_rows }}
-                    </div>
-                </div>
-                <div>
-                    <div
-                        class="flex items-center gap-2 text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
+                        class="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
                     >
                         <Ship class="h-3.5 w-3.5" />
                         SHIPS
                     </div>
-                    <div class="mt-1 text-2xl font-semibold text-eve-cyan">
-                        {{ result.ship_count }}
+                    <div class="mt-1 text-3xl font-semibold text-eve-cyan">
+                        {{ shipEntries.length }}
                     </div>
                 </div>
                 <div>
                     <div
                         class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
                     >
-                        OTHER OBJECTS
+                        SHIP TYPES
                     </div>
-                    <div class="mt-1 text-2xl font-semibold text-eve-text-2">
-                        {{ nonShipCount }}
+                    <div class="mt-1 text-3xl font-semibold text-eve-text-1">
+                        {{ shipTypes.length }}
+                    </div>
+                </div>
+                <div>
+                    <div
+                        class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
+                    >
+                        CLASSES
+                    </div>
+                    <div class="mt-1 text-3xl font-semibold text-eve-text-1">
+                        {{ shipClasses.length }}
                     </div>
                 </div>
             </div>
 
             <div
-                v-if="result"
-                class="grid flex-none gap-10 px-5 py-5 lg:grid-cols-[1.5fr_1fr]"
+                class="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[1.6fr_1fr]"
             >
-                <div>
-                    <div class="flex items-center gap-2">
+                <!-- Ship types: the primary view -->
+                <div class="flex min-h-0 flex-col overflow-hidden">
+                    <div
+                        class="flex flex-none items-center gap-2 px-5 pt-5 pb-3"
+                    >
                         <Radar class="h-4 w-4 text-eve-cyan" />
                         <h3
                             class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
                         >
-                            SHIP SUMMARY
+                            SHIP TYPES
                         </h3>
-                    </div>
-                    <div
-                        v-if="topShipGroups.length > 0"
-                        class="mt-4 grid gap-x-8 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
-                    >
-                        <div
-                            v-for="item in topShipGroups"
-                            :key="item.group"
-                            class="flex items-baseline justify-between gap-4"
+                        <button
+                            v-if="selectedClass"
+                            class="ml-1 flex items-center gap-1 rounded-full border border-eve-cyan/40 bg-eve-cyan/10 py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-eve-cyan transition-colors hover:bg-eve-cyan/20"
+                            @click="selectedClass = null"
                         >
-                            <span class="text-sm text-eve-text-1">{{
-                                item.group
-                            }}</span>
-                            <span class="text-sm font-semibold text-eve-cyan">{{
-                                item.count
-                            }}</span>
-                        </div>
+                            {{ selectedClass }}
+                            <X class="h-3 w-3" />
+                        </button>
                     </div>
 
-                    <p v-else class="mt-4 text-sm text-eve-text-3">
-                        No ships detected in this scan.
-                    </p>
-                </div>
-
-                <div>
-                    <h3
-                        class="text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
-                    >
-                        OBJECT MIX
-                    </h3>
-                    <div class="mt-4 space-y-2">
-                        <div
-                            v-for="item in topCategories"
-                            :key="item.category"
-                            class="flex items-baseline justify-between gap-4"
+                    <div class="min-h-0 flex-1 overflow-auto px-5 pb-4">
+                        <p
+                            v-if="shipTypes.length === 0"
+                            class="text-sm text-eve-text-3"
                         >
-                            <span class="text-sm text-eve-text-2">{{
-                                item.category
-                            }}</span>
-                            <span
-                                class="text-sm font-semibold text-eve-text-1"
-                                >{{ item.count }}</span
+                            No ships detected in this scan.
+                        </p>
+
+                        <ul v-else class="space-y-1">
+                            <li
+                                v-for="item in visibleShipTypes"
+                                :key="item.type_name"
+                                class="relative flex items-center gap-3 overflow-hidden rounded-md bg-eve-bg-1 px-3 py-2"
                             >
-                        </div>
-                    </div>
-                </div>
-            </div>
+                                <div
+                                    class="absolute inset-y-0 left-0 bg-eve-cyan/8"
+                                    :style="{ width: barWidth(item.count) }"
+                                />
+                                <img
+                                    v-if="item.type_id"
+                                    :src="getShipIconUrl(item.type_id, 64)"
+                                    :alt="item.type_name"
+                                    class="relative z-10 h-8 w-8 flex-none rounded-sm"
+                                    loading="lazy"
+                                />
+                                <div
+                                    v-else
+                                    class="relative z-10 h-8 w-8 flex-none rounded-sm bg-eve-bg-3"
+                                />
+                                <div class="relative z-10 min-w-0 flex-1">
+                                    <div
+                                        class="truncate text-sm text-eve-text-1"
+                                    >
+                                        {{ item.type_name }}
+                                    </div>
+                                    <div
+                                        class="truncate text-xs text-eve-text-3"
+                                    >
+                                        {{ item.subtitle }}
+                                    </div>
+                                </div>
+                                <div
+                                    class="relative z-10 flex-none text-xl font-semibold tabular-nums text-eve-cyan"
+                                >
+                                    {{ item.count }}
+                                </div>
+                            </li>
+                        </ul>
 
-            <div
-                class="min-h-0 flex-1 overflow-hidden"
-                :class="result ? 'border-t border-eve-border' : ''"
-            >
-                <div
-                    v-if="loading"
-                    class="flex h-full items-center justify-center text-sm text-eve-text-3"
-                >
-                    Parsing directional scan...
-                </div>
-
-                <div
-                    v-else-if="!result"
-                    class="flex h-full flex-col items-center justify-center gap-4 text-eve-text-3"
-                >
-                    <Radar class="w-16 h-16 opacity-20" :stroke-width="1" />
-                    <div class="text-center">
-                        <p class="text-sm text-eve-text-2 mb-1">
-                            No D-scan results
-                        </p>
-                        <p class="text-xs">
-                            Paste directional scan output to begin
-                        </p>
-                    </div>
-                </div>
-
-                <div v-else class="flex h-full flex-col overflow-hidden">
-                    <div class="px-5 py-3 text-xs text-eve-text-3">
-                        Raw parsed rows for verification. The summary above is
-                        the primary D-scan view.
-                    </div>
-
-                    <div class="min-h-0 overflow-hidden px-5 pb-4">
-                        <div
-                            class="grid h-full min-h-0 overflow-auto text-xs [grid-template-columns:100px_minmax(180px,1.4fr)_minmax(140px,1fr)_minmax(180px,1fr)_120px_100px]"
-                        >
+                        <!-- Other objects (revealed via toggle) -->
+                        <template v-if="showOther && otherTypes.length > 0">
                             <div
-                                class="col-span-full sticky top-0 z-10 grid grid-cols-subgrid border-b border-eve-border bg-eve-bg-1 py-2 text-[10px] font-semibold tracking-wider text-eve-text-3"
+                                class="mt-5 mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
                             >
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('type_id')"
-                                >
-                                    TYPE ID{{ sortIndicator('type_id') }}
-                                </button>
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('name')"
-                                >
-                                    NAME{{ sortIndicator('name') }}
-                                </button>
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('type_name')"
-                                >
-                                    TYPE{{ sortIndicator('type_name') }}
-                                </button>
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('group_name')"
-                                >
-                                    GROUP{{ sortIndicator('group_name') }}
-                                </button>
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('category_name')"
-                                >
-                                    CATEGORY{{ sortIndicator('category_name') }}
-                                </button>
-                                <button
-                                    class="text-left cursor-pointer hover:text-eve-text-1"
-                                    @click="toggleSort('distance')"
-                                >
-                                    DISTANCE{{ sortIndicator('distance') }}
-                                </button>
+                                <Boxes class="h-3.5 w-3.5" />
+                                OTHER OBJECTS
                             </div>
+                            <ul class="space-y-1">
+                                <li
+                                    v-for="item in otherTypes"
+                                    :key="item.type_name"
+                                    class="flex items-center gap-3 rounded-md px-3 py-1.5 text-eve-text-2"
+                                >
+                                    <img
+                                        v-if="item.type_id"
+                                        :src="getShipIconUrl(item.type_id, 64)"
+                                        :alt="item.type_name"
+                                        class="h-6 w-6 flex-none rounded-sm opacity-70"
+                                        loading="lazy"
+                                    />
+                                    <div
+                                        v-else
+                                        class="h-6 w-6 flex-none rounded-sm bg-eve-bg-3"
+                                    />
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-sm">
+                                            {{ item.type_name }}
+                                        </div>
+                                        <div
+                                            class="truncate text-xs text-eve-text-3"
+                                        >
+                                            {{ item.subtitle }}
+                                        </div>
+                                    </div>
+                                    <div
+                                        class="flex-none text-sm font-semibold tabular-nums text-eve-text-2"
+                                    >
+                                        {{ item.count }}
+                                    </div>
+                                </li>
+                            </ul>
+                        </template>
+                    </div>
+                </div>
 
-                            <div
-                                v-for="(entry, index) in sortedEntries"
-                                :key="`${index}:${entry.type_id ?? 'unknown'}:${entry.name}:${entry.distance ?? '-'}`"
-                                class="col-span-full grid grid-cols-subgrid items-baseline py-2 text-sm"
-                            >
-                                <div class="font-mono text-eve-text-3">
-                                    {{ entry.type_id ?? '—' }}
-                                </div>
-                                <div class="truncate text-eve-text-1">
-                                    {{ entry.name }}
-                                </div>
-                                <div class="truncate text-eve-text-1">
-                                    {{ entry.type_name }}
-                                </div>
-                                <div class="truncate text-eve-text-2">
-                                    {{ entry.group_name ?? 'Unknown' }}
-                                </div>
-                                <div>
-                                    <span
-                                        class="text-xs"
+                <!-- By class summary -->
+                <div
+                    class="flex min-h-0 flex-col overflow-hidden border-t border-eve-border lg:border-t-0 lg:border-l"
+                >
+                    <h3
+                        class="flex-none px-5 pt-5 pb-3 text-[10px] font-semibold tracking-[0.15em] text-eve-text-3"
+                    >
+                        BY CLASS
+                    </h3>
+                    <div class="min-h-0 flex-1 overflow-auto px-5 pb-4">
+                        <ul class="space-y-1">
+                            <li v-for="item in shipClasses" :key="item.name">
+                                <button
+                                    class="group relative flex w-full items-center gap-2.5 overflow-hidden rounded-md border px-2.5 py-2 text-left transition-colors"
+                                    :class="
+                                        selectedClass === item.name
+                                            ? 'border-eve-cyan/50 bg-eve-cyan/10'
+                                            : 'border-transparent hover:border-eve-border hover:bg-eve-bg-1'
+                                    "
+                                    @click="toggleClass(item.name)"
+                                >
+                                    <div
+                                        class="absolute inset-y-0 left-0"
                                         :class="
-                                            entry.is_ship
-                                                ? 'font-semibold text-eve-cyan'
-                                                : 'text-eve-text-3'
+                                            selectedClass === item.name
+                                                ? 'bg-eve-cyan/10'
+                                                : 'bg-eve-bg-2'
+                                        "
+                                        :style="{
+                                            width: classBarWidth(item.count),
+                                        }"
+                                    />
+                                    <component
+                                        :is="classIcon(item.name)"
+                                        class="relative z-10 h-4 w-4 flex-none"
+                                        :class="
+                                            selectedClass === item.name
+                                                ? 'text-eve-cyan'
+                                                : 'text-eve-text-3 group-hover:text-eve-text-2'
+                                        "
+                                    />
+                                    <span
+                                        class="relative z-10 min-w-0 flex-1 truncate text-sm"
+                                        :class="
+                                            selectedClass === item.name
+                                                ? 'text-eve-cyan'
+                                                : 'text-eve-text-1'
                                         "
                                     >
-                                        {{ entry.category_name ?? 'Unknown' }}
+                                        {{ item.name }}
                                     </span>
-                                </div>
-                                <div class="font-mono text-eve-text-2">
-                                    {{ entry.distance ?? '—' }}
-                                </div>
-                            </div>
-                        </div>
+                                    <span
+                                        class="relative z-10 flex-none text-sm font-semibold tabular-nums"
+                                        :class="
+                                            selectedClass === item.name
+                                                ? 'text-eve-cyan'
+                                                : 'text-eve-text-2'
+                                        "
+                                    >
+                                        {{ item.count }}
+                                    </span>
+                                </button>
+                            </li>
+                        </ul>
+                        <p
+                            v-if="shipClasses.length === 0"
+                            class="text-sm text-eve-text-3"
+                        >
+                            —
+                        </p>
                     </div>
                 </div>
             </div>
+
+            <!-- Toggle for non-ship objects -->
+            <label
+                class="flex flex-none cursor-pointer items-center gap-2 border-t border-eve-border px-5 py-3 text-xs text-eve-text-2 select-none"
+            >
+                <Checkbox v-model="showOther" />
+                Show other objects ({{ otherEntries.length }})
+                <span class="text-eve-text-3">— structures, drones, etc.</span>
+            </label>
         </div>
     </section>
 </template>
