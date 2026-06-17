@@ -139,6 +139,22 @@ async function handleConnectNetwork() {
     }
 }
 
+const togglingId = ref<number | null>(null)
+
+async function handleToggleConnect(networkId: number) {
+    togglingId.value = networkId
+    error.value = null
+    try {
+        await setActiveNetworkId(
+            activeNetworkId.value === networkId ? null : networkId
+        )
+    } catch (e) {
+        error.value = String(e)
+    } finally {
+        togglingId.value = null
+    }
+}
+
 async function handleDisconnectNetwork() {
     loading.value = true
     error.value = null
@@ -376,25 +392,18 @@ onMounted(() => {
     fetchNetworks()
 })
 
+// Keep the active network's data loaded so the index can show live status and
+// the detail view is ready when opened — but don't hijack the view: the list is
+// the hub where connections are managed.
 watch(
     [isAuthenticated, networks, activeNetworkId],
     async ([authed, currentNetworks, currentActiveId]) => {
         if (!props.embedded || !authed) return
-        if (currentNetworks.length === 0) {
-            view.value = 'list'
-            return
+        if (currentActiveId == null) return
+        const exists = currentNetworks.some((n) => n.id === currentActiveId)
+        if (exists && selectedNetwork.value?.id !== currentActiveId) {
+            await selectNetwork(currentActiveId)
         }
-        if (currentActiveId != null) {
-            const exists = currentNetworks.some((n) => n.id === currentActiveId)
-            if (exists) {
-                if (selectedNetwork.value?.id !== currentActiveId) {
-                    await selectNetwork(currentActiveId)
-                }
-                view.value = 'detail'
-                return
-            }
-        }
-        view.value = 'list'
     },
     { immediate: true }
 )
@@ -532,19 +541,74 @@ watch(
                                     {{ network.entries_count ?? 0 }} annotations
                                 </div>
                             </div>
-                            <Badge
-                                v-if="activeNetworkId === network.id"
-                                variant="outline"
-                                class="border-eve-cyan/40 text-eve-cyan text-[9px] shrink-0"
-                                >Connected</Badge
-                            >
-                            <button
-                                class="p-1.5 rounded text-eve-text-3 opacity-0 group-hover:opacity-100 hover:text-eve-red hover:bg-eve-red/10 transition-all shrink-0"
-                                title="Delete network"
-                                @click.stop="handleDeleteNetwork(network.id)"
-                            >
-                                <Trash2 class="w-3 h-3" />
-                            </button>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span
+                                    class="flex items-center gap-1.5 text-[10px] font-medium"
+                                    :class="
+                                        activeNetworkId === network.id
+                                            ? 'text-eve-cyan'
+                                            : 'text-eve-text-3'
+                                    "
+                                >
+                                    <span
+                                        class="w-1.5 h-1.5 rounded-full"
+                                        :class="
+                                            activeNetworkId === network.id
+                                                ? 'bg-eve-cyan shadow-[0_0_6px] shadow-eve-cyan'
+                                                : 'bg-eve-text-3/40'
+                                        "
+                                    />
+                                    {{
+                                        activeNetworkId === network.id
+                                            ? 'Connected'
+                                            : 'Offline'
+                                    }}
+                                </span>
+
+                                <Button
+                                    v-if="activeNetworkId === network.id"
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-7 px-2 text-[10px] text-eve-text-3 hover:text-eve-text-1"
+                                    :disabled="togglingId === network.id"
+                                    @click.stop="
+                                        handleToggleConnect(network.id)
+                                    "
+                                >
+                                    <RefreshCw
+                                        v-if="togglingId === network.id"
+                                        class="w-3.5 h-3.5 mr-1 animate-spin"
+                                    />
+                                    <LogOut v-else class="w-3.5 h-3.5 mr-1" />
+                                    Disconnect
+                                </Button>
+                                <Button
+                                    v-else
+                                    size="sm"
+                                    class="h-7 px-3 text-[10px]"
+                                    :disabled="togglingId === network.id"
+                                    @click.stop="
+                                        handleToggleConnect(network.id)
+                                    "
+                                >
+                                    <RefreshCw
+                                        v-if="togglingId === network.id"
+                                        class="w-3.5 h-3.5 mr-1 animate-spin"
+                                    />
+                                    <Zap v-else class="w-3.5 h-3.5 mr-1" />
+                                    Connect
+                                </Button>
+
+                                <button
+                                    class="p-1.5 rounded text-eve-text-3 opacity-0 group-hover:opacity-100 hover:text-eve-red hover:bg-eve-red/10 transition-all shrink-0"
+                                    title="Delete network"
+                                    @click.stop="
+                                        handleDeleteNetwork(network.id)
+                                    "
+                                >
+                                    <Trash2 class="w-3 h-3" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </template>
