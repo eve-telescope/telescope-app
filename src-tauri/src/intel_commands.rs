@@ -86,6 +86,15 @@ pub async fn set_api_token(
     fetch_networks(app, state).await
 }
 
+/// Applies an auth token exactly like the `set_api_token` command, but
+/// callable from Rust-side handlers (e.g. deep links) where `State` guards
+/// come from the `AppHandle` instead of an invoke.
+pub async fn apply_api_token(app: &AppHandle, token: String) -> Result<(), String> {
+    use tauri::Manager;
+    let state = app.state::<Mutex<IntelState>>();
+    set_api_token(app.clone(), state, token).await
+}
+
 #[tauri::command]
 pub async fn logout_intel(
     app: AppHandle,

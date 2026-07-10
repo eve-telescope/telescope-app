@@ -1,9 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
-import { onOpenUrl, getCurrent } from '@tauri-apps/plugin-deep-link'
-import { parseDeepLinkUrl } from '../utils/share'
-import { setApiToken } from '../stores/intel'
-import type { UnlistenFn } from '@tauri-apps/api/event'
-import { info, error as logError, warn } from '@tauri-apps/plugin-log'
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { info, error as logError } from '@tauri-apps/plugin-log'
 import { API_BASE_URL } from '../utils/config'
 
 interface ShareData {
@@ -35,73 +33,51 @@ async function fetchShare(code: string): Promise<ShareData | null> {
     }
 }
 
+/**
+ * Deep links are parsed and dispatched in Rust (src-tauri/src/deep_link.rs):
+ * auth tokens are applied entirely backend-side and surface through the
+ * regular intel-state-changed flow, so the frontend only handles share
+ * codes — delivered via the 'deep-link-share' event while running, or
+ * parked backend-side when the link arrived before the webview mounted.
+ */
 export function useDeepLink(onPilotsReceived: (pilots: string) => void) {
-    const lastUrl = ref<string | null>(null)
     const loading = ref(false)
     let unlisten: UnlistenFn | null = null
 
-    async function handleUrl(url: string) {
-        await info(`[DeepLink] Received URL: ${url}`)
-        lastUrl.value = url
-        const result = parseDeepLinkUrl(url)
-        await info(`[DeepLink] Parsed result: ${JSON.stringify(result)}`)
-
-        if (!result) {
-            await warn('[DeepLink] Failed to parse URL')
-            return
-        }
-
-        if (result.type === 'auth') {
-            await info('[DeepLink] Received auth token')
-            await setApiToken(result.token)
-            return
-        }
-
-        if (result.type === 'share') {
-            loading.value = true
-            try {
-                await info('[DeepLink] Fetching share data...')
-                const share = await fetchShare(result.code)
-                await info(`[DeepLink] Share data: ${JSON.stringify(share)}`)
-                if (share?.pilots) {
-                    await info(
-                        `[DeepLink] Calling onPilotsReceived with ${share.pilots.length} pilots`
-                    )
-                    onPilotsReceived(share.pilots.join('\n'))
-                }
-            } catch (e) {
-                await logError(`[DeepLink] Error fetching share: ${e}`)
-            } finally {
-                loading.value = false
-            }
-        }
-    }
-
-    async function checkStartupUrl() {
+    async function loadShare(code: string) {
+        loading.value = true
         try {
-            await info('[DeepLink] Checking startup URL...')
-            const urls = await getCurrent()
-            await info(`[DeepLink] Startup URLs: ${JSON.stringify(urls)}`)
-            if (urls && urls.length > 0) {
-                handleUrl(urls[0])
+            await info(`[DeepLink] Loading share: ${code}`)
+            const share = await fetchShare(code)
+            if (share?.pilots) {
+                await info(
+                    `[DeepLink] Received ${share.pilots.length} pilots from share`
+                )
+                onPilotsReceived(share.pilots.join('\n'))
             }
         } catch (e) {
-            await logError(`[DeepLink] Failed to get startup deep link: ${e}`)
+            await logError(`[DeepLink] Error fetching share: ${e}`)
+        } finally {
+            loading.value = false
         }
     }
 
-    async function setupListener() {
-        unlisten = await onOpenUrl((urls) => {
-            for (const url of urls) {
-                handleUrl(url)
-                break
-            }
+    onMounted(async () => {
+        unlisten = await listen<string>('deep-link-share', (event) => {
+            void loadShare(event.payload)
         })
-    }
 
-    onMounted(() => {
-        checkStartupUrl()
-        setupListener()
+        // Collect a share link that launched the app before we mounted.
+        try {
+            const pending = await invoke<string | null>(
+                'take_pending_deep_link_share'
+            )
+            if (pending) {
+                void loadShare(pending)
+            }
+        } catch (e) {
+            await logError(`[DeepLink] Failed to check pending share: ${e}`)
+        }
     })
 
     onUnmounted(() => {
@@ -109,7 +85,6 @@ export function useDeepLink(onPilotsReceived: (pilots: string) => void) {
     })
 
     return {
-        lastUrl,
         loading,
     }
 }

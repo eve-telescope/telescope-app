@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import type { ShipStats } from '../types'
 import { getShipIconUrl } from '../utils/format'
 
@@ -13,7 +13,7 @@ function openShipUrl(
     type: 'kills' | 'losses' | 'all'
 ): void {
     const suffix = type === 'all' ? '' : `${type}/`
-    openUrl(
+    openExternalUrl(
         `https://zkillboard.com/character/${props.characterId}/ship/${shipTypeId}/${suffix}`
     )
 }

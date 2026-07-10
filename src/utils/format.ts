@@ -44,10 +44,6 @@ export function formatPpk(points: number, kills: number): string {
     return ppk.toFixed(0)
 }
 
-export function openZkill(characterId: number): void {
-    window.open(`https://zkillboard.com/character/${characterId}/`, '_blank')
-}
-
 export function getPortraitUrl(characterId: number, size = 32): string {
     return `https://images.evetech.net/characters/${characterId}/portrait?size=${size}`
 }

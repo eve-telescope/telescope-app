@@ -36,6 +36,10 @@ chrono = "0.4"
 tauri-plugin-os = "2.3.2"
 tauri-plugin-window-state = "2"
 tauri-plugin-vue = "2.2.0"
+url = "2"
 urlencoding = "2.1.3"
 zip = "2"
-tauri-plugin-single-instance = "2.4.0"
+# The deep-link feature forwards telescope:// URLs from a second instance's
+# argv into the deep-link plugin (Linux/Windows deliver warm-start deep links
+# as command-line args; without this the URL is dropped and only focus works).
+tauri-plugin-single-instance = { version = "2.4.0", features = ["deep-link"] }

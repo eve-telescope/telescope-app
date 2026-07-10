@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Download, X, ExternalLink } from 'lucide-vue-next'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import type { UpdateInfo } from '../composables/useUpdateChecker'
 import {
     Dialog,
@@ -21,7 +21,7 @@ const emit = defineEmits<{
 }>()
 
 function openRelease() {
-    openUrl(props.info.release_url)
+    openExternalUrl(props.info.release_url)
 }
 </script>
 

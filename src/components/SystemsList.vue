@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import type { SystemStats } from '../types'
 
 const props = defineProps<{
@@ -13,7 +13,7 @@ function openSystemUrl(
     type: 'kills' | 'losses' | 'all'
 ): void {
     const suffix = type === 'all' ? '' : `${type}/`
-    openUrl(
+    openExternalUrl(
         `https://zkillboard.com/character/${props.characterId}/system/${systemId}/${suffix}`
     )
 }

@@ -1,5 +1,6 @@
 mod api;
 mod commands;
+mod deep_link;
 mod intel;
 mod intel_commands;
 mod intel_state;
@@ -17,7 +18,13 @@ use tokio::sync::Mutex;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // On Linux/Windows a deep link to a running app arrives as the
+            // second instance's argv; the plugin's deep-link feature forwards
+            // it to the deep-link plugin automatically. Log it so warm-start
+            // link delivery stays diagnosable.
+            log::info!("[SingleInstance] Second instance args: {:?}", args);
+
             // Focus the main window when a second instance is launched
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
@@ -54,10 +61,31 @@ pub fn run() {
             let initial_state = IntelState::load(&app_dir);
             app.manage(Mutex::new(initial_state));
             app.manage(app_dir);
-            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.manage(deep_link::PendingShare::default());
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
+
+                #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
                 let _ = app.deep_link().register_all();
+
+                // Cold start via a deep link: handle URLs that arrived
+                // before the frontend exists (auth applies immediately;
+                // share codes are parked for take_pending_deep_link_share).
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for url in &urls {
+                        deep_link::handle_startup(app.handle(), url.as_str());
+                    }
+                }
+
+                // Warm delivery on every platform: macOS via Apple Events,
+                // Linux/Windows via the single-instance plugin's deep-link
+                // feature forwarding the second instance's argv.
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        deep_link::handle_runtime(&handle, url.as_str());
+                    }
+                });
             }
             Ok(())
         })
@@ -72,6 +100,8 @@ pub fn run() {
             commands::open_overlay,
             commands::close_overlay,
             commands::toggle_overlay,
+            commands::open_external,
+            deep_link::take_pending_deep_link_share,
             intel_commands::get_intel_state,
             intel_commands::set_api_base_url,
             intel_commands::set_api_token,

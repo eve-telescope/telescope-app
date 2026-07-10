@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Trash2, HelpCircle, Database, RefreshCw } from 'lucide-vue-next'
+import {
+    Trash2,
+    HelpCircle,
+    Database,
+    RefreshCw,
+    Copy,
+    Check,
+} from 'lucide-vue-next'
 import { invoke } from '@tauri-apps/api/core'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+import { openExternalUrl } from '../utils/openExternal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -25,9 +33,34 @@ const emit = defineEmits<{
 
 const tokenInput = ref('')
 const showTokenInput = ref(false)
+const loginError = ref<string | null>(null)
+
+// Shown alongside the button so users can always reach the login page
+// manually, even when the system browser opener is broken.
+const loginUrl = `${API_BASE_URL}/eve?desktop=1`
+const loginUrlCopied = ref(false)
 
 async function loginWithEve() {
-    await openUrl(`${API_BASE_URL}/eve?desktop=1`)
+    loginError.value = null
+    try {
+        await openExternalUrl(loginUrl)
+    } catch (e) {
+        // Surface the failure instead of silently doing nothing — on Linux
+        // a broken opener (e.g. env workarounds leaking into xdg-open)
+        // previously made this button appear dead.
+        console.error('Failed to open EVE login in browser:', e)
+        loginError.value = `Could not open the browser: ${e}`
+    }
+}
+
+async function copyLoginUrl() {
+    try {
+        await writeText(loginUrl)
+        loginUrlCopied.value = true
+        setTimeout(() => (loginUrlCopied.value = false), 2000)
+    } catch (e) {
+        console.error('Failed to copy login link:', e)
+    }
 }
 
 async function submitToken() {
@@ -92,6 +125,37 @@ async function clearCache() {
                         >
                             Connect with EVE
                         </Button>
+
+                        <p v-if="loginError" class="text-xs text-eve-red">
+                            {{ loginError }}
+                        </p>
+
+                        <div
+                            class="rounded border border-eve-border bg-eve-bg-1 px-2 py-1.5"
+                        >
+                            <p class="mb-1 text-[10px] text-eve-text-3">
+                                Or open this link in your browser:
+                            </p>
+                            <div class="flex items-center gap-1.5">
+                                <code
+                                    class="flex-1 truncate font-mono text-[10px] text-eve-text-2 select-all"
+                                    >{{ loginUrl }}</code
+                                >
+                                <button
+                                    class="shrink-0 rounded p-1 text-eve-text-3 transition-colors hover:bg-eve-bg-hover hover:text-eve-text-1"
+                                    :title="
+                                        loginUrlCopied ? 'Copied!' : 'Copy link'
+                                    "
+                                    @click="copyLoginUrl"
+                                >
+                                    <Check
+                                        v-if="loginUrlCopied"
+                                        class="w-3 h-3 text-eve-green"
+                                    />
+                                    <Copy v-else class="w-3 h-3" />
+                                </button>
+                            </div>
+                        </div>
 
                         <div v-if="showTokenInput" class="space-y-2">
                             <Input

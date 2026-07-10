@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ExternalLink } from 'lucide-vue-next'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import type { ZkillStats } from '../types'
 
 const props = defineProps<{
@@ -9,7 +9,7 @@ const props = defineProps<{
 }>()
 
 function openZkill(): void {
-    openUrl(`https://zkillboard.com/character/${props.characterId}/`)
+    openExternalUrl(`https://zkillboard.com/character/${props.characterId}/`)
 }
 </script>
 

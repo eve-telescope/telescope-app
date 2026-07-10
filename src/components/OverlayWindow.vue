@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import type { PilotIntel } from '../types'
 import { getPortraitUrl, getShipIconUrl, getKdRatio } from '../utils/format'
 import { getPilotTags } from '../utils/pilotTags'
@@ -14,13 +14,13 @@ import { useSettings } from '../composables/useSettings'
 
 function openZkill(characterId: number) {
     if (characterId > 0) {
-        openUrl(`https://zkillboard.com/character/${characterId}/`)
+        openExternalUrl(`https://zkillboard.com/character/${characterId}/`)
     }
 }
 
 function openShipZkill(characterId: number, shipTypeId: number) {
     if (characterId > 0 && shipTypeId > 0) {
-        openUrl(
+        openExternalUrl(
             `https://zkillboard.com/character/${characterId}/ship/${shipTypeId}/`
         )
     }

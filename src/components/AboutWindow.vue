@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { getVersion } from '@tauri-apps/api/app'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openExternalUrl } from '../utils/openExternal'
 import { ExternalLink, Github, Globe } from 'lucide-vue-next'
 import { useSettings } from '../composables/useSettings'
 import { formatShortcut, isMac } from '../utils/shortcut'
@@ -21,7 +21,7 @@ onMounted(async () => {
 })
 
 function openExternal(url: string) {
-    openUrl(url)
+    openExternalUrl(url)
 }
 </script>
 

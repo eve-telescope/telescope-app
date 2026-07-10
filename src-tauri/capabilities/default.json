@@ -37,7 +37,6 @@
     "log:default",
     "store:default",
     "cache:default",
-    "deep-link:default",
     "window-state:default"
   ]
 }
