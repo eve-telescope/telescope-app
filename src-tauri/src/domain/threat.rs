@@ -1,3 +1,5 @@
+//! Threat scoring and pilot-flag detection from zKillboard stats.
+
 use crate::models::{PilotFlags, ZkillStats};
 
 mod ship_groups {
@@ -107,10 +109,35 @@ pub fn calculate_threat_level(zkill: &Option<ZkillStats>) -> String {
     }
 }
 
+/// Severity rank for the levels `calculate_threat_level` produces:
+/// 0 is most dangerous, unknown strings sort last. Defined next to the
+/// level vocabulary so tiers and their order can never drift apart.
+pub fn threat_rank(level: &str) -> u8 {
+    match level {
+        "EXTREME" => 0,
+        "HIGH" => 1,
+        "MODERATE" => 2,
+        "LOW" => 3,
+        "MINIMAL" => 4,
+        _ => 5,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::ShipStats;
+
+    #[test]
+    fn threat_rank_orders_every_level_calculate_can_produce() {
+        let levels = ["EXTREME", "HIGH", "MODERATE", "LOW", "MINIMAL"];
+        for pair in levels.windows(2) {
+            assert!(threat_rank(pair[0]) < threat_rank(pair[1]));
+        }
+        // Unknown vocabulary always sorts last.
+        assert!(threat_rank("Unknown") > threat_rank("MINIMAL"));
+        assert!(threat_rank("") > threat_rank("MINIMAL"));
+    }
 
     fn ship(group_id: i64, kills: i64) -> ShipStats {
         ShipStats {

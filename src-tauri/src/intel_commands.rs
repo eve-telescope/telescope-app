@@ -1,18 +1,20 @@
+//! Intel network commands. All state mutation goes through the pure
+//! `domain::intel_reducer`. This layer only does I/O: telescope API calls,
+//! persistence, and event emission.
+
 use log::{info, warn};
 use reqwest::Client;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
+use crate::domain::intel_reducer::{reduce, IntelAction};
 use crate::intel_state::IntelState;
 use crate::models::*;
 use crate::telescope_api::{self, TelescopeClient};
 
-fn upsert_scan_entry(entries: &mut Vec<IntelEntry>, entry: &IntelEntry) {
-    if let Some(idx) = entries.iter().position(|e| e.id == entry.id) {
-        entries[idx] = entry.clone();
-    } else {
-        entries.push(entry.clone());
-    }
+/// Applies an action to the locked state via the pure reducer.
+fn apply(state: &mut IntelState, action: IntelAction) {
+    *state = reduce(std::mem::take(state), action);
 }
 
 fn emit_state(app: &AppHandle, state: &IntelState) {
@@ -55,7 +57,7 @@ async fn refetch_selected_network(
     match telescope_api::get_network_detail(client, base_url, network_id).await {
         Ok(detail) => {
             let mut s = state.lock().await;
-            s.selected_network = Some(detail);
+            apply(&mut s, IntelAction::SelectNetwork(detail));
             emit_state(app, &s);
         }
         Err(err) => warn!("[Intel] Failed to refresh network {}: {}", network_id, err),
@@ -78,7 +80,7 @@ pub async fn set_api_base_url(
     url: String,
 ) -> Result<(), String> {
     let mut s = state.lock().await;
-    s.api_base_url = url;
+    apply(&mut s, IntelAction::SetBaseUrl(url));
     emit_state(&app, &s);
     Ok(())
 }
@@ -92,10 +94,11 @@ pub async fn set_api_token(
 ) -> Result<(), String> {
     {
         let mut s = state.lock().await;
-        s.api_token = Some(token);
+        apply(&mut s, IntelAction::SetToken(token));
         persist_state(&app, &s);
         emit_state(&app, &s);
     }
+    // Refresh networks with the new token, after the state lock is released.
     fetch_networks(app, state, clients).await
 }
 
@@ -115,11 +118,7 @@ pub async fn logout_intel(
     state: State<'_, Mutex<IntelState>>,
 ) -> Result<(), String> {
     let mut s = state.lock().await;
-    let base_url = s.api_base_url.clone();
-    *s = IntelState {
-        api_base_url: base_url,
-        ..IntelState::default()
-    };
+    apply(&mut s, IntelAction::Logout);
     persist_state(&app, &s);
     emit_state(&app, &s);
     Ok(())
@@ -132,7 +131,7 @@ pub async fn set_active_network_ids(
     ids: Vec<i64>,
 ) -> Result<(), String> {
     let mut s = state.lock().await;
-    s.active_network_ids = ids;
+    apply(&mut s, IntelAction::SetActiveNetworkIds(ids));
     persist_state(&app, &s);
     emit_state(&app, &s);
     Ok(())
@@ -150,7 +149,7 @@ pub async fn fetch_networks(
     info!("[Intel] Loaded {} networks", networks.len());
 
     let mut s = state.lock().await;
-    s.networks = networks;
+    apply(&mut s, IntelAction::SetNetworks(networks));
     emit_state(&app, &s);
     Ok(())
 }
@@ -167,7 +166,7 @@ pub async fn create_network(
     let network = telescope_api::create_network(&client, &base_url, &name).await?;
 
     let mut s = state.lock().await;
-    s.networks.push(network.clone());
+    apply(&mut s, IntelAction::AddNetwork(network.clone()));
     emit_state(&app, &s);
     Ok(network)
 }
@@ -184,10 +183,7 @@ pub async fn delete_network(
     telescope_api::delete_network(&client, &base_url, network_id).await?;
 
     let mut s = state.lock().await;
-    s.networks.retain(|n| n.id != network_id);
-    if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
-        s.selected_network = None;
-    }
+    apply(&mut s, IntelAction::RemoveNetwork(network_id));
     emit_state(&app, &s);
     Ok(())
 }
@@ -204,7 +200,7 @@ pub async fn select_network(
     let detail = telescope_api::get_network_detail(&client, &base_url, network_id).await?;
 
     let mut s = state.lock().await;
-    s.selected_network = Some(detail.clone());
+    apply(&mut s, IntelAction::SelectNetwork(detail.clone()));
     emit_state(&app, &s);
     Ok(detail)
 }
@@ -215,7 +211,7 @@ pub async fn clear_selected_network(
     state: State<'_, Mutex<IntelState>>,
 ) -> Result<(), String> {
     let mut s = state.lock().await;
-    s.selected_network = None;
+    apply(&mut s, IntelAction::ClearSelected);
     emit_state(&app, &s);
     Ok(())
 }
@@ -237,7 +233,7 @@ pub async fn lookup_intel(
     info!("[Intel] Lookup returned {} entries", entries.len());
 
     let mut s = state.lock().await;
-    s.entries = entries;
+    apply(&mut s, IntelAction::SetEntries(entries));
     emit_state(&app, &s);
     Ok(())
 }
@@ -281,7 +277,7 @@ pub async fn add_intel_entry(
     entry.network_name = network_name;
 
     let mut s = state.lock().await;
-    upsert_scan_entry(&mut s.entries, &entry);
+    apply(&mut s, IntelAction::UpsertEntry(entry.clone()));
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);
@@ -334,7 +330,7 @@ pub async fn update_intel_entry(
     entry.network_name = network_name;
 
     let mut s = state.lock().await;
-    upsert_scan_entry(&mut s.entries, &entry);
+    apply(&mut s, IntelAction::UpsertEntry(entry.clone()));
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);
@@ -359,7 +355,7 @@ pub async fn remove_intel_entry(
     telescope_api::remove_intel_entry(&client, &base_url, network_id, entry_id).await?;
 
     let mut s = state.lock().await;
-    s.entries.retain(|e| e.id != entry_id);
+    apply(&mut s, IntelAction::RemoveEntry(entry_id));
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);

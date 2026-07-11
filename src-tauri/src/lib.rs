@@ -1,7 +1,7 @@
 mod api;
 mod commands;
 mod deep_link;
-mod intel;
+mod domain;
 mod intel_commands;
 mod intel_state;
 mod models;
