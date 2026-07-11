@@ -41,6 +41,6 @@ jobs:
         working-directory: src-tauri
 
       - name: Commit formatting fixes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'style: auto-format'
