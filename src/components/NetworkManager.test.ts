@@ -13,9 +13,11 @@ vi.mock('../utils/config', () => ({
 
 // We can't easily mount NetworkManager (too many dependencies),
 // so we test the permission logic and visibility rules directly.
-// These tests validate the business rules that drive UI visibility.
+// These tests validate the business rules that drive UI visibility, using the
+// real helpers from utils/network that the network subcomponents render with.
 
 import type { NetworkAccess, NetworkDetail } from '../types'
+import { accessPermissionLabel, canRemoveAccess } from '../utils/network'
 
 describe('Permission-based visibility rules', () => {
     function makeAccess(
@@ -53,16 +55,26 @@ describe('Permission-based visibility rules', () => {
                 makeAccess('manager', true),
                 makeAccess('viewer', false),
             ])
-            const nonOwnerAccesses = network.accesses.filter((a) => !a.is_owner)
-            expect(nonOwnerAccesses.length).toBe(1)
+            const removableAccesses = network.accesses.filter(canRemoveAccess)
+            expect(removableAccesses.length).toBe(1)
+            expect(removableAccesses[0].is_owner).toBe(false)
         })
 
         it('owner access cannot be deleted', () => {
             const network = makeNetwork([makeAccess('manager', true)])
             const ownerAccess = network.accesses.find((a) => a.is_owner)
             expect(ownerAccess).toBeDefined()
-            // UI rule: v-if="!access.is_owner" on delete button
-            expect(ownerAccess!.is_owner).toBe(true)
+            // UI rule: v-if="canRemoveAccess(access)" on delete button
+            expect(canRemoveAccess(ownerAccess!)).toBe(false)
+        })
+
+        it('owner badge shows owner instead of the permission level', () => {
+            expect(accessPermissionLabel(makeAccess('manager', true))).toBe(
+                'owner'
+            )
+            expect(accessPermissionLabel(makeAccess('viewer', false))).toBe(
+                'viewer'
+            )
         })
     })
 

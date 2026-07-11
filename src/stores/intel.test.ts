@@ -23,7 +23,10 @@ vi.mock('../utils/config', () => ({
     API_BASE_URL: 'https://test.example.com',
 }))
 
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import {
+    initIntelStore,
     isAuthenticated,
     entries,
     activeNetworkId,
@@ -275,5 +278,44 @@ describe('isAuthenticated', () => {
 describe('activeNetworkId', () => {
     it('is null by default', () => {
         expect(activeNetworkId.value).toBeNull()
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Bootstrap (kept last: initIntelStore replaces the state with the mocked
+// get_intel_state snapshot, which would clear entries built by tests above)
+// ---------------------------------------------------------------------------
+
+describe('initIntelStore', () => {
+    it('does not bootstrap at module import time', () => {
+        // The store module was imported at the top of this file, but no
+        // Tauri call may happen until initIntelStore() is invoked.
+        expect(invoke).not.toHaveBeenCalled()
+        expect(listen).not.toHaveBeenCalled()
+    })
+
+    it('subscribes and bootstraps exactly once, even when called twice', async () => {
+        const first = initIntelStore()
+        const second = initIntelStore()
+        expect(second).toBe(first)
+        await first
+
+        expect(listen).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(listen).mock.calls[0][0]).toBe('intel-state-changed')
+        expect(invoke).toHaveBeenCalledWith('set_api_base_url', {
+            url: 'https://test.example.com',
+        })
+        expect(
+            vi
+                .mocked(invoke)
+                .mock.calls.filter(([cmd]) => cmd === 'set_api_base_url')
+        ).toHaveLength(1)
+
+        // Not authenticated in the mocked snapshot → no network fetch.
+        expect(invoke).not.toHaveBeenCalledWith('fetch_networks')
+
+        // A later call is a no-op returning the same settled promise.
+        await initIntelStore()
+        expect(listen).toHaveBeenCalledTimes(1)
     })
 })

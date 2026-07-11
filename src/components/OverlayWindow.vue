@@ -442,7 +442,7 @@ async function toggleLock() {
                     v-for="(pilot, index) in sortedPilots"
                     :key="pilot.character.id"
                     :style="{ '--i': index }"
-                    class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 items-center px-3 py-1 border-b border-eve-border/20 hover:bg-eve-bg-hover/50 transition-colors cursor-pointer [content-visibility:auto] [contain-intrinsic-size:auto_31px]"
+                    class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 items-center px-3 py-1 border-b border-eve-border/20 hover:bg-eve-bg-hover/50 transition-colors cursor-pointer"
                     @click="openZkill(pilot.character.id)"
                 >
                     <!-- Threat dot -->

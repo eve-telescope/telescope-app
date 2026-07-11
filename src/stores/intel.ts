@@ -84,28 +84,38 @@ const state = shallowRef<IntelState>({
     active_network_ids: [],
 })
 
-// Listen for state changes from Rust — this is how all windows stay in sync.
-// App-lifetime subscription: the UnlistenFn is intentionally discarded.
-listen<IntelState>('intel-state-changed', (event) => {
-    state.value = event.payload
-}).catch((e) => {
-    console.error('Failed to subscribe to intel state changes:', e)
-})
+// ---------------------------------------------------------------------------
+// Bootstrap — explicit, idempotent (no import-time side effects)
+// ---------------------------------------------------------------------------
 
-// Set the API base URL in Rust, load initial state, and fetch networks if
-// authenticated. Runs once at module load; errors are logged, not fatal.
-async function bootstrap() {
-    await invoke('set_api_base_url', { url: API_BASE_URL })
-    const s = await invoke<IntelState>('get_intel_state')
-    state.value = s
-    if (s.api_token) {
-        await invoke('fetch_networks')
-    }
+let initPromise: Promise<void> | null = null
+
+/**
+ * Subscribe to Rust state changes, set the API base URL, load the initial
+ * state, and fetch networks if authenticated. Idempotent: every window that
+ * consumes the store calls this from setup (RouterRoot covers all routes),
+ * and only the first call does any work. Errors are logged, not fatal —
+ * the promise always resolves.
+ */
+export function initIntelStore(): Promise<void> {
+    initPromise ??= (async () => {
+        // Subscribe before fetching the snapshot so a change emitted while
+        // get_intel_state is in flight can't be missed. App-lifetime
+        // subscription: the UnlistenFn is intentionally discarded.
+        await listen<IntelState>('intel-state-changed', (event) => {
+            state.value = event.payload
+        })
+        await invoke('set_api_base_url', { url: API_BASE_URL })
+        const s = await invoke<IntelState>('get_intel_state')
+        state.value = s
+        if (s.api_token) {
+            await invoke('fetch_networks')
+        }
+    })().catch((e) => {
+        console.error('Failed to bootstrap intel state:', e)
+    })
+    return initPromise
 }
-
-bootstrap().catch((e) => {
-    console.error('Failed to bootstrap intel state:', e)
-})
 
 // ---------------------------------------------------------------------------
 // Reactive computed getters

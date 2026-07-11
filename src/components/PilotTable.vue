@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import type { PilotIntel } from '../types'
 import PilotRow from './PilotRow.vue'
 import SortableHeader from './SortableHeader.vue'
@@ -8,10 +8,6 @@ import { usePilotSort } from '../composables/usePilotSort'
 
 const props = defineProps<{
     pilots: PilotIntel[]
-    // True while scan results are streaming in. Disables the FLIP move
-    // animation (every insert would otherwise measure + translate all
-    // rows) while keeping the enter cascade and leave fade.
-    streaming?: boolean
 }>()
 
 const { settings } = useSettings()
@@ -44,29 +40,6 @@ function toggleExpand(id: number) {
 function rowKey(pilot: PilotIntel): string | number {
     return pilot.character.id || pilot.character.name
 }
-
-// Stagger delays are relative to the ENTERING batch, not the absolute list
-// index: when rows are appended to an existing list, the first new row
-// fades immediately instead of the whole block waiting out the cap.
-// 20ms per new row, capped so big batches finish their cascade in ~0.5s.
-const staggerByKey = ref(new Map<string | number, string>())
-watch(
-    sortedPilots,
-    (next, prev) => {
-        const prevKeys = new Set((prev ?? []).map(rowKey))
-        const staggers = new Map<string | number, string>()
-        let entering = 0
-        for (const pilot of next) {
-            const key = rowKey(pilot)
-            if (!prevKeys.has(key)) {
-                staggers.set(key, `${Math.min(entering * 20, 500)}ms`)
-                entering++
-            }
-        }
-        staggerByKey.value = staggers
-    },
-    { immediate: true }
-)
 </script>
 
 <template>
@@ -173,22 +146,14 @@ watch(
         </div>
 
         <!-- Rows scroll independently of the header; rows shared between two
-             scans keep their key and stay put, others cross-fade. -->
-        <!-- While streaming, an unstyled move-class makes Vue's
-             hasCSSTransform() check fail so TransitionGroup skips the whole
-             FLIP measure/translate pass; enter/leave still run. -->
+             scans keep their key and stay put, others cross-fade. Results
+             always stream in paced batches (see commands/lookup.rs), so the
+             same fade/slide animations run for cached and fresh scans. -->
         <div class="relative flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-            <TransitionGroup
-                name="row-fade"
-                :move-class="streaming ? 'row-fade-move-none' : 'row-fade-move'"
-            >
+            <TransitionGroup name="row-fade">
                 <PilotRow
                     v-for="pilot in sortedPilots"
                     :key="rowKey(pilot)"
-                    :style="{
-                        '--row-stagger':
-                            staggerByKey.get(rowKey(pilot)) ?? '0ms',
-                    }"
                     :pilot="pilot"
                     :expanded="expandedPilot === pilot.character.id"
                     @toggle="toggleExpand(pilot.character.id)"

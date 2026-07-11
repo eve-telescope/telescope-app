@@ -19,7 +19,17 @@ import NetworkManager from './components/NetworkManager.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DscanPanel from './components/DscanPanel.vue'
 import { detectScanInputKind } from './utils/scanInput'
-import { isAuthenticated, activeNetworkId, shareScan } from './stores/intel'
+import {
+    initIntelStore,
+    isAuthenticated,
+    activeNetworkId,
+    shareScan,
+} from './stores/intel'
+
+// Idempotent — RouterRoot already kicks this off for every window, but the
+// main window depends on the store directly, so state that dependency here
+// instead of relying on the mounting context.
+void initIntelStore()
 
 const {
     pilotNames,
@@ -140,7 +150,6 @@ useEchoConnection()
                         <PilotTable
                             v-if="pilots.length > 0"
                             :pilots="filteredPilots"
-                            :streaming="loading"
                         />
                         <EmptyState v-else-if="!loading" />
                     </div>

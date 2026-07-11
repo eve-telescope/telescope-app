@@ -63,7 +63,9 @@ watch(
 )
 
 function handleKeydown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    // Mirrors the SCAN button's disabled state: the textarea stays usable
+    // during a fetch, but the shortcut must not start a second scan.
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !props.loading) {
         emit('scan')
     }
 }
@@ -130,10 +132,11 @@ function lineCount(text: string): number {
             >
                 PASTE LOCAL OR D-SCAN
             </h3>
+            <!-- Stays enabled during a fetch: only the SCAN button locks,
+                 so a new paste can be prepared while results stream in. -->
             <Textarea
                 v-model="pilotNames"
                 placeholder="Paste local or D-scan text..."
-                :disabled="loading"
                 @keydown="handleKeydown"
                 class="w-full flex-1 min-h-32 resize-none font-mono"
             />

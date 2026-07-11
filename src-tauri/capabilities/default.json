@@ -1,42 +1,42 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main", "about", "overlay", "networks"],
-  "permissions": [
-    "core:default",
-    "core:window:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-destroy",
-    "core:window:allow-is-maximized",
-    "core:window:allow-set-decorations",
-    "core:window:allow-set-focus",
-    "core:window:allow-set-resizable",
-    "core:webview:default",
-    "core:webview:allow-create-webview-window",
-    "os:default",
-    "opener:default",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [
-        { "url": "https://zkillboard.com/*" },
-        { "url": "https://*.zkillboard.com/*" },
-        { "url": "https://eve-telescope.com/*" },
-        { "url": "https://telescope-web.test/*" },
-        { "url": "https://github.com/*" }
-      ]
-    },
-    "clipboard-manager:allow-read-text",
-    "clipboard-manager:allow-write-text",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
-    "log:default",
-    "store:default",
-    "cache:default",
-    "window-state:default"
-  ]
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "default",
+    "description": "Capability for the main window",
+    "windows": ["main", "about", "overlay", "networks"],
+    "permissions": [
+        "core:default",
+        "core:window:default",
+        "core:window:allow-start-dragging",
+        "core:window:allow-minimize",
+        "core:window:allow-toggle-maximize",
+        "core:window:allow-close",
+        "core:window:allow-destroy",
+        "core:window:allow-is-maximized",
+        "core:window:allow-set-decorations",
+        "core:window:allow-set-focus",
+        "core:window:allow-set-resizable",
+        "core:webview:default",
+        "core:webview:allow-create-webview-window",
+        "os:default",
+        "opener:default",
+        {
+            "identifier": "opener:allow-open-url",
+            "allow": [
+                { "url": "https://zkillboard.com/*" },
+                { "url": "https://*.zkillboard.com/*" },
+                { "url": "https://eve-telescope.com/*" },
+                { "url": "https://telescope-web.test/*" },
+                { "url": "https://github.com/*" }
+            ]
+        },
+        "clipboard-manager:allow-read-text",
+        "clipboard-manager:allow-write-text",
+        "global-shortcut:allow-register",
+        "global-shortcut:allow-unregister",
+        "global-shortcut:allow-is-registered",
+        "log:default",
+        "store:default",
+        "cache:default",
+        "window-state:default"
+    ]
 }

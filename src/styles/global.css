@@ -55,46 +55,25 @@
         align-items: center;
     }
 
-    /* Shared list cross-fade (pilot table, d-scan lists): rows present in
-       both lists stay put (same key), removed rows fade out in place while
-       the rest FLIP-move, and new rows fade in. */
-    .row-fade-move,
+    /* Keyed cross-fade for the pilot table and d-scan lists — deliberately
+       simple: entering rows fade in, leaving rows fade out out-of-flow so
+       the survivors FLIP-slide into place. Opacity/transform only (no
+       layout-animating properties), no staggering, no per-batch modes. */
     .row-fade-enter-active,
     .row-fade-leave-active {
-        transition:
-            opacity 0.25s ease,
-            transform 0.25s ease;
+        transition: opacity 0.15s ease;
     }
 
+    .row-fade-move {
+        transition: transform 0.2s ease;
+    }
+
+    .row-fade-enter-from,
     .row-fade-leave-to {
         opacity: 0;
     }
 
-    /* Entering rows grow from zero height while fading, so the list expands
-       smoothly with the cascade instead of pre-allocating an invisible gap.
-       The max-height target only needs to exceed the tallest entering row
-       (rows enter collapsed, never expanded); it's removed with the class. */
-    .row-fade-enter-from {
-        opacity: 0;
-        max-height: 0;
-    }
-
-    .row-fade-enter-to {
-        max-height: 56px;
-    }
-
-    /* Staggered cascade for batch inserts: each row sets --row-stagger from
-       its position within the ENTERING batch (not the absolute list index),
-       delaying only the enter transition (leave/move/hover unaffected). */
-    .row-fade-enter-active {
-        overflow: hidden;
-        transition:
-            opacity 0.25s ease,
-            max-height 0.25s ease;
-        transition-delay: var(--row-stagger, 0ms);
-    }
-
-    /* Take leaving rows out of flow so survivors can move up smoothly.
+    /* Take leaving rows out of flow so survivors can slide up smoothly.
        Requires the list container to be position:relative. */
     .row-fade-leave-active {
         position: absolute;

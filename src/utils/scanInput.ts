@@ -1,5 +1,17 @@
 export type ScanInputKind = 'local' | 'dscan'
 
+/**
+ * Splits a pasted local-scan block into trimmed, non-empty pilot names —
+ * the shared definition of "one pilot per line" used for both the pilot
+ * count and the cross-fade retain set.
+ */
+export function splitPilotNames(text: string): string[] {
+    return text
+        .split('\n')
+        .map((name) => name.trim())
+        .filter(Boolean)
+}
+
 const DSCAN_LINE_PATTERN = /^\d+\t.+\t.+(?:\t.+)?$/
 
 export function detectScanInputKind(text: string): ScanInputKind {

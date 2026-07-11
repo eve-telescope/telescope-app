@@ -1,6 +1,10 @@
 import { ref, computed, type Ref } from 'vue'
 import type { PilotIntel } from '../types'
-import { getPilotTagStrings } from '../utils/pilotTags'
+import {
+    filterPilots,
+    hasActiveFilters,
+    type PilotFilterState,
+} from '../utils/pilotFilters'
 
 export type FilterMode = 'single' | 'multi'
 
@@ -8,6 +12,11 @@ export interface PilotFiltersOptions {
     mode?: FilterMode
 }
 
+/**
+ * Standalone (non-synced) filter state around the shared
+ * utils/pilotFilters core. 'single' mode uses one ticker per category,
+ * 'multi' mode accumulates a set of corp/alliance names.
+ */
 export function usePilotFilters(
     pilots: Ref<PilotIntel[]>,
     options: PilotFiltersOptions = {}
@@ -81,62 +90,20 @@ export function usePilotFilters(
         selectedAlliances.value = new Set()
     }
 
-    const hasFilters = computed(() => {
-        return (
-            threatFilter.value !== null ||
-            selectedTags.value.size > 0 ||
-            corpFilter.value !== null ||
-            allianceFilter.value !== null ||
-            selectedCorps.value.size > 0 ||
-            selectedAlliances.value.size > 0
-        )
-    })
+    const filterState = computed<PilotFilterState>(() => ({
+        threatFilter: threatFilter.value,
+        selectedTags: selectedTags.value,
+        corpFilter: corpFilter.value,
+        allianceFilter: allianceFilter.value,
+        selectedCorps: selectedCorps.value,
+        selectedAlliances: selectedAlliances.value,
+    }))
 
-    const filteredPilots = computed(() => {
-        let result = pilots.value
+    const hasFilters = computed(() => hasActiveFilters(filterState.value))
 
-        if (threatFilter.value) {
-            result = result.filter(
-                (p) => p.threat_level.toLowerCase() === threatFilter.value
-            )
-        }
-
-        if (selectedTags.value.size > 0) {
-            result = result.filter((p) =>
-                getPilotTagStrings(p).some((tag) => selectedTags.value.has(tag))
-            )
-        }
-
-        if (mode === 'single') {
-            if (corpFilter.value) {
-                result = result.filter(
-                    (p) => p.character.corporation_ticker === corpFilter.value
-                )
-            }
-            if (allianceFilter.value) {
-                result = result.filter(
-                    (p) => p.character.alliance_ticker === allianceFilter.value
-                )
-            }
-        } else {
-            if (selectedCorps.value.size > 0) {
-                result = result.filter((p) =>
-                    selectedCorps.value.has(
-                        p.character.corporation_name || 'Unknown'
-                    )
-                )
-            }
-            if (selectedAlliances.value.size > 0) {
-                result = result.filter(
-                    (p) =>
-                        p.character.alliance_name &&
-                        selectedAlliances.value.has(p.character.alliance_name)
-                )
-            }
-        }
-
-        return result
-    })
+    const filteredPilots = computed(() =>
+        filterPilots(pilots.value, filterState.value)
+    )
 
     return {
         threatFilter,

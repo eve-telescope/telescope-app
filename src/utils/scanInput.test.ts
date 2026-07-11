@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectScanInputKind } from './scanInput'
+import { detectScanInputKind, splitPilotNames } from './scanInput'
 
 describe('detectScanInputKind', () => {
     it('detects local scan (pilot names)', () => {
@@ -35,5 +35,26 @@ describe('detectScanInputKind', () => {
 
     it('handles single pilot name', () => {
         expect(detectScanInputKind('Solo Pilot')).toBe('local')
+    })
+})
+
+describe('splitPilotNames', () => {
+    it('splits one pilot per line', () => {
+        expect(splitPilotNames('Pilot One\nPilot Two')).toEqual([
+            'Pilot One',
+            'Pilot Two',
+        ])
+    })
+
+    it('trims whitespace and drops blank lines', () => {
+        expect(splitPilotNames('  Pilot One  \n\n   \nPilot Two\n')).toEqual([
+            'Pilot One',
+            'Pilot Two',
+        ])
+    })
+
+    it('returns an empty array for empty input', () => {
+        expect(splitPilotNames('')).toEqual([])
+        expect(splitPilotNames('   \n \n')).toEqual([])
     })
 })

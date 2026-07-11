@@ -1,15 +1,22 @@
 import { ref, computed, onMounted, onUnmounted, type Ref } from 'vue'
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { PilotIntel } from '../types'
+import { filterPilots, hasActiveFilters } from '../utils/pilotFilters'
+import { FILTER_SYNC_EVENT } from './useScanListeners'
 
+/**
+ * Overlay-side filter state, kept in sync with the main window over the
+ * FILTER_SYNC_EVENT protocol. The payload shape below is frozen — the main
+ * window broadcasts a superset (selectedCorps/selectedAlliances) that this
+ * side simply ignores. Matching is delegated to the shared
+ * utils/pilotFilters core so both windows filter identically.
+ */
 export interface FilterState {
     threatFilter: string | null
     selectedTags: string[]
     corpFilter: string | null
     allianceFilter: string | null
 }
-
-const FILTER_SYNC_EVENT = 'filter-state-sync'
 
 export function useSyncedFilters(pilots: Ref<PilotIntel[]>) {
     const threatFilter = ref<string | null>(null)
@@ -33,8 +40,8 @@ export function useSyncedFilters(pilots: Ref<PilotIntel[]>) {
         isSyncing = true
         threatFilter.value = state.threatFilter
         selectedTags.value = new Set(state.selectedTags)
-        corpFilter.value = state.corpFilter
-        allianceFilter.value = state.allianceFilter
+        corpFilter.value = state.corpFilter ?? null
+        allianceFilter.value = state.allianceFilter ?? null
         isSyncing = false
     }
 
@@ -78,55 +85,20 @@ export function useSyncedFilters(pilots: Ref<PilotIntel[]>) {
         broadcastState()
     }
 
-    const hasFilters = computed(() => {
-        return (
-            threatFilter.value !== null ||
-            selectedTags.value.size > 0 ||
-            corpFilter.value !== null ||
-            allianceFilter.value !== null
-        )
-    })
+    const currentFilterState = computed(() => ({
+        threatFilter: threatFilter.value,
+        selectedTags: selectedTags.value,
+        corpFilter: corpFilter.value,
+        allianceFilter: allianceFilter.value,
+    }))
 
-    const filteredPilots = computed(() => {
-        let result = pilots.value
+    const hasFilters = computed(() =>
+        hasActiveFilters(currentFilterState.value)
+    )
 
-        if (threatFilter.value) {
-            result = result.filter(
-                (p) => p.threat_level.toLowerCase() === threatFilter.value
-            )
-        }
-
-        if (selectedTags.value.size > 0) {
-            result = result.filter((p) => {
-                const flags = p.flags
-                if (selectedTags.value.has('super') && flags.is_super)
-                    return true
-                if (selectedTags.value.has('capital') && flags.is_capital)
-                    return true
-                if (selectedTags.value.has('blops') && flags.is_blops)
-                    return true
-                if (selectedTags.value.has('recon') && flags.is_recon)
-                    return true
-                if (selectedTags.value.has('cyno') && flags.is_cyno) return true
-                if (selectedTags.value.has('solo') && flags.is_solo) return true
-                return false
-            })
-        }
-
-        if (corpFilter.value) {
-            result = result.filter(
-                (p) => p.character.corporation_ticker === corpFilter.value
-            )
-        }
-
-        if (allianceFilter.value) {
-            result = result.filter(
-                (p) => p.character.alliance_ticker === allianceFilter.value
-            )
-        }
-
-        return result
-    })
+    const filteredPilots = computed(() =>
+        filterPilots(pilots.value, currentFilterState.value)
+    )
 
     onMounted(async () => {
         unlisten = await listen<FilterState>(FILTER_SYNC_EVENT, (event) => {

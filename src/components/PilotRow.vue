@@ -114,10 +114,7 @@ async function mountMenu(e: MouseEvent) {
 <template>
     <!-- Div rows instead of table markup: WKWebView can't composite animated
          table elements, and the scan cross-fade animates these rows. -->
-    <div
-        class="border-b border-eve-border [content-visibility:auto] [contain-intrinsic-size:auto_39px]"
-        @contextmenu="mountMenu"
-    >
+    <div class="border-b border-eve-border" @contextmenu="mountMenu">
         <component
             :is="menuMounted ? IntelContextMenu : BareSlot"
             v-bind="menuProps"
@@ -141,7 +138,7 @@ async function mountMenu(e: MouseEvent) {
                             :src="getPortraitUrl(pilot.character.id)"
                             loading="lazy"
                             decoding="async"
-                            class="w-[26px] h-[26px] rounded shrink-0"
+                            class="w-[26px] h-[26px] rounded shrink-0 bg-eve-bg-3"
                         />
                         <div
                             v-else
