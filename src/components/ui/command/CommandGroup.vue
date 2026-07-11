@@ -37,12 +37,7 @@ onUnmounted(() => {
         v-bind="delegatedProps"
         :id="id"
         data-slot="command-group"
-        :class="
-            cn(
-                'text-neutral-950 overflow-hidden p-1 dark:text-neutral-50',
-                props.class
-            )
-        "
+        :class="cn('text-eve-text-1 overflow-hidden p-1', props.class)"
         :hidden="isRender ? undefined : true"
     >
         <ListboxGroupLabel
@@ -52,8 +47,7 @@ onUnmounted(() => {
             py-1.5
             text-xs
             font-medium
-            text-neutral-500
-            dark:text-neutral-400
+            text-eve-text-3
         >
             {{ heading }}
         </ListboxGroupLabel>

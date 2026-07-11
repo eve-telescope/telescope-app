@@ -29,12 +29,24 @@ function getHeatColor(value: number): string {
     if (value === 0) return 'transparent'
     const intensity = Math.min(value / props.activity.max, 1)
     const alpha = 0.2 + intensity * 0.8
-    return `rgba(68, 221, 170, ${alpha})`
+    return `color-mix(in srgb, var(--color-eve-green) ${Math.round(alpha * 100)}%, transparent)`
 }
 
 function formatHour(hour: number): string {
     return hour.toString().padStart(2, '0')
 }
+
+// Hoist per-cell style objects and title strings so the 168 cells are only
+// rebuilt when the underlying data changes, not on every render.
+const heatCells = computed(() =>
+    props.activity.data.map((dayData, dayIndex) =>
+        dayData.map((value, hour) => ({
+            zero: value === 0,
+            bg: { background: getHeatColor(value) },
+            title: `${DAYS[dayIndex]} ${formatHour(hour)}:00 - ${value} kills`,
+        }))
+    )
+)
 </script>
 
 <template>
@@ -71,7 +83,7 @@ function formatHour(hour: number): string {
 
             <!-- Rows -->
             <div
-                v-for="(dayData, dayIndex) in activity.data"
+                v-for="(dayCells, dayIndex) in heatCells"
                 :key="dayIndex"
                 class="flex items-center gap-1"
             >
@@ -86,12 +98,12 @@ function formatHour(hour: number): string {
                 >
                 <div class="flex gap-px flex-1">
                     <div
-                        v-for="(value, hour) in dayData"
+                        v-for="(cell, hour) in dayCells"
                         :key="hour"
                         class="flex-1 h-2.5 rounded-sm transition-transform hover:scale-y-150 hover:z-20"
-                        :class="value === 0 ? 'bg-eve-bg-3' : ''"
-                        :style="{ background: getHeatColor(value) }"
-                        :title="`${DAYS[dayIndex]} ${formatHour(hour as number)}:00 - ${value} kills`"
+                        :class="cell.zero ? 'bg-eve-bg-3' : ''"
+                        :style="cell.bg"
+                        :title="cell.title"
                     ></div>
                 </div>
             </div>

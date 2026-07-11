@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, shallowRef, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type {
@@ -18,6 +18,7 @@ import type {
 } from '../types'
 import { API_BASE_URL } from '../utils/config'
 import {
+    DEFAULT_ANNOTATION_COLOR,
     getAnnotationColor,
     getAnnotationTargetKey,
     mapIntelEntryToAnnotation,
@@ -71,7 +72,10 @@ function upsertSelectedNetworkEntry(entry: IntelEntry) {
     return { ...selected, entries }
 }
 
-const state = ref<IntelState>({
+// shallowRef: every write replaces the whole object (Rust event payloads,
+// bootstrap, and the onEntry* handlers all assign fresh objects), so deep
+// reactivity over the entries/networks arrays is unnecessary overhead.
+const state = shallowRef<IntelState>({
     api_base_url: API_BASE_URL,
     api_token: null,
     networks: [],
@@ -80,26 +84,35 @@ const state = ref<IntelState>({
     active_network_ids: [],
 })
 
-// Listen for state changes from Rust — this is how all windows stay in sync
+// Listen for state changes from Rust — this is how all windows stay in sync.
+// App-lifetime subscription: the UnlistenFn is intentionally discarded.
 listen<IntelState>('intel-state-changed', (event) => {
     state.value = event.payload
+}).catch((e) => {
+    console.error('Failed to subscribe to intel state changes:', e)
 })
 
-// Set the API base URL in Rust, load initial state, and fetch networks if authenticated
-invoke('set_api_base_url', { url: API_BASE_URL }).then(() =>
-    invoke<IntelState>('get_intel_state').then((s) => {
-        state.value = s
-        if (s.api_token) {
-            invoke('fetch_networks')
-        }
-    })
-)
+// Set the API base URL in Rust, load initial state, and fetch networks if
+// authenticated. Runs once at module load; errors are logged, not fatal.
+async function bootstrap() {
+    await invoke('set_api_base_url', { url: API_BASE_URL })
+    const s = await invoke<IntelState>('get_intel_state')
+    state.value = s
+    if (s.api_token) {
+        await invoke('fetch_networks')
+    }
+}
+
+bootstrap().catch((e) => {
+    console.error('Failed to bootstrap intel state:', e)
+})
 
 // ---------------------------------------------------------------------------
 // Reactive computed getters
 // ---------------------------------------------------------------------------
 
 export const isAuthenticated = computed(() => !!state.value.api_token)
+export const apiToken = computed(() => state.value.api_token)
 export const networks = computed(() => state.value.networks)
 export const entries = computed(() => state.value.entries)
 export const selectedNetwork = computed(() => state.value.selected_network)
@@ -300,7 +313,7 @@ export async function createAnnotation(
         targetType,
         targetId,
         targetName,
-        getAnnotationColor(tags) ?? '#556677',
+        getAnnotationColor(tags) ?? DEFAULT_ANNOTATION_COLOR,
         label,
         note ?? null
     )
@@ -321,7 +334,7 @@ export async function updateAnnotation(
         entityType: targetType,
         entityId: targetId,
         entityName: targetName,
-        color: getAnnotationColor(tags) ?? '#556677',
+        color: getAnnotationColor(tags) ?? DEFAULT_ANNOTATION_COLOR,
         label: serializeAnnotationTags(tags),
         notes: note ?? null,
     })

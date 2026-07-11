@@ -1,15 +1,21 @@
+use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_cache::CacheExt;
-use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
 
 use crate::api::{create_client, esi, zkill};
 use crate::intel::{calculate_threat_level, detect_pilot_flags};
 use crate::models::{CharacterInfo, DscanParseResult, PilotFlags, PilotIntel, SdeStatus};
 use crate::sde;
 
+/// Cap on simultaneous per-pilot lookups so large locals don't burst
+/// hundreds of concurrent ESI/zKill requests into rate limits.
+const MAX_CONCURRENT_LOOKUPS: usize = 8;
+
+/// Minimum spacing between lookup launches. Pacing launches to one every
+/// 100ms approximates ≤10 launches/sec for zKillboard rate-limit safety,
+/// while `buffer_unordered` above caps the number in flight at 8.
 const DISPATCH_INTERVAL_MS: u64 = 100;
 
 #[derive(Clone, Serialize)]
@@ -88,55 +94,50 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
     );
 
     if uncached_count > 0 {
-        let (tx, mut rx) = mpsc::channel::<(usize, PilotIntel)>(uncached_count);
-
-        let dispatch_app = app.clone();
-        let dispatch_client = client.clone();
-
-        tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_millis(DISPATCH_INTERVAL_MS));
-
-            for (i, name, character_id) in uncached {
-                ticker.tick().await;
-
-                let tx = tx.clone();
-                let app_clone = dispatch_app.clone();
-                let client_clone = dispatch_client.clone();
-
-                tokio::spawn(async move {
-                    let (pilot, _) =
-                        fetch_pilot_intel(&app_clone, &client_clone, name, character_id).await;
-                    let _ = tx.send((i, pilot)).await;
-                });
-            }
-        });
+        let started = tokio::time::Instant::now();
+        let mut lookups = futures::stream::iter(uncached.into_iter().enumerate().map(
+            |(launch_index, (i, name, character_id))| {
+                let app = app.clone();
+                let client = client.clone();
+                async move {
+                    // Pace launches: the n-th lookup may not start before
+                    // n * DISPATCH_INTERVAL_MS after the stream began.
+                    tokio::time::sleep_until(
+                        started
+                            + std::time::Duration::from_millis(
+                                launch_index as u64 * DISPATCH_INTERVAL_MS,
+                            ),
+                    )
+                    .await;
+                    let (pilot, _) = fetch_pilot_intel(&app, &client, name, character_id).await;
+                    (i, pilot)
+                }
+            },
+        ))
+        .buffer_unordered(MAX_CONCURRENT_LOOKUPS);
 
         let mut received = 0;
-        while received < uncached_count {
-            if let Some((index, pilot)) = rx.recv().await {
-                received += 1;
+        while let Some((index, pilot)) = lookups.next().await {
+            received += 1;
 
-                let _ = app.emit(
-                    "pilot-result",
-                    PilotResult {
-                        pilot: pilot.clone(),
-                        index,
-                    },
-                );
+            let _ = app.emit(
+                "pilot-result",
+                PilotResult {
+                    pilot: pilot.clone(),
+                    index,
+                },
+            );
 
-                let _ = app.emit(
-                    "lookup-progress",
-                    LookupProgress {
-                        current: cache_hits + received,
-                        total,
-                        cache_hits,
-                    },
-                );
+            let _ = app.emit(
+                "lookup-progress",
+                LookupProgress {
+                    current: cache_hits + received,
+                    total,
+                    cache_hits,
+                },
+            );
 
-                results.push(pilot);
-            } else {
-                break;
-            }
+            results.push(pilot);
         }
     }
 
@@ -163,8 +164,9 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
 #[tauri::command]
 pub async fn ensure_sde_index(
     app_dir: tauri::State<'_, std::path::PathBuf>,
+    sde_service: tauri::State<'_, sde::SdeService>,
 ) -> Result<SdeStatus, String> {
-    sde::ensure_sde_index(app_dir.inner().as_path()).await
+    sde::ensure_sde_index(app_dir.inner().as_path(), sde_service.inner()).await
 }
 
 #[tauri::command]
@@ -177,9 +179,18 @@ pub async fn get_sde_status(
 #[tauri::command]
 pub async fn parse_dscan(
     app_dir: tauri::State<'_, std::path::PathBuf>,
+    sde_service: tauri::State<'_, sde::SdeService>,
     text: String,
 ) -> Result<DscanParseResult, String> {
-    sde::parse_dscan(&text, app_dir.inner().as_path())
+    let index = sde_service
+        .index(app_dir.inner().as_path())
+        .await?
+        .ok_or_else(|| "SDE index is not ready yet".to_string())?;
+
+    // Large pastes are pure CPU work; keep them off the async runtime.
+    tokio::task::spawn_blocking(move || sde::parse_dscan_text(&index, &text))
+        .await
+        .map_err(|err| err.to_string())
 }
 
 fn try_from_cache(app: &AppHandle, character_id: Option<i64>) -> Option<PilotIntel> {
@@ -492,5 +503,34 @@ pub async fn open_external(app: AppHandle, url: String) -> Result<(), String> {
             error!("[Opener] Failed to open URL: {}", e);
             Err(e.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_newer_version;
+
+    #[test]
+    fn newer_patch_and_major_versions_detected() {
+        assert!(is_newer_version("0.3.1", "0.3.0"));
+        assert!(is_newer_version("1.0.0", "0.9.9"));
+        assert!(!is_newer_version("0.3.0", "0.3.1"));
+        assert!(!is_newer_version("0.3.0", "0.3.0"));
+    }
+
+    #[test]
+    fn shorter_versions_are_zero_padded() {
+        assert!(!is_newer_version("1.0", "1.0.0"));
+        assert!(!is_newer_version("1.0.0", "1.0"));
+        assert!(is_newer_version("1.1", "1.0.5"));
+    }
+
+    #[test]
+    fn non_numeric_and_empty_parts_are_ignored() {
+        // Non-numeric segments are skipped by the parser.
+        assert!(!is_newer_version("abc", "1.0.0"));
+        assert!(is_newer_version("1.0.1", "abc"));
+        assert!(!is_newer_version("", ""));
+        assert!(!is_newer_version("", "1.0.0"));
     }
 }

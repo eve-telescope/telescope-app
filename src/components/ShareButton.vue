@@ -36,8 +36,8 @@ async function share() {
     <button
         class="w-full py-2 bg-eve-bg-2 border border-eve-border rounded text-eve-text-2 text-xs font-medium tracking-wider cursor-pointer transition-all hover:border-eve-cyan-dim hover:text-eve-cyan disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         :class="{
-            'border-green-500/50 text-green-400': state === 'copied',
-            'border-red-500/50 text-red-400': state === 'error',
+            'border-eve-green/50 text-eve-green': state === 'copied',
+            'border-eve-red/50 text-eve-red': state === 'error',
         }"
         :disabled="state === 'loading' || props.disabled"
         @click="share"

@@ -24,6 +24,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { User, Building2, Flag } from 'lucide-vue-next'
+import { DEFAULT_TAG_COLOR } from '../utils/pilotTags'
 import {
     isAuthenticated,
     activeNetwork,
@@ -34,6 +35,7 @@ import {
 } from '../stores/intel'
 import type { EntityType, IntelAnnotation } from '../types'
 import {
+    DEFAULT_ANNOTATION_COLOR,
     PRESET_ANNOTATION_TAGS,
     getAnnotationColor,
     normalizeAnnotationTag,
@@ -60,7 +62,7 @@ const customTags = computed(() => {
         if (a.networkId !== net.id) continue
         for (const tag of a.tags) {
             if (!PRESET_TAG_SET.has(tag) && !tags.has(tag)) {
-                tags.set(tag, a.color ?? '#94A3B8')
+                tags.set(tag, a.color ?? DEFAULT_TAG_COLOR)
             }
         }
     }
@@ -143,7 +145,7 @@ const formTags = computed(() =>
 )
 
 const formColor = computed(
-    () => getAnnotationColor(formTags.value) ?? '#556677'
+    () => getAnnotationColor(formTags.value) ?? DEFAULT_ANNOTATION_COLOR
 )
 
 async function quickToggle(

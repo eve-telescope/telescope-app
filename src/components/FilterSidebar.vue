@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue'
+import { refThrottled } from '@vueuse/core'
 import { X } from 'lucide-vue-next'
 import type { PilotIntel } from '../types'
 import FilterGroup from './FilterGroup.vue'
 import { usePilotCounts } from '../composables/usePilotCounts'
+import { getAllianceLogoUrl, getCorporationLogoUrl } from '../utils/format'
+import { DEFAULT_TAG_COLOR, DEFAULT_TAG_TEXT_COLOR } from '../utils/pilotTags'
 
 const props = defineProps<{
     pilots: PilotIntel[]
@@ -19,7 +22,12 @@ const emit = defineEmits<{
     clearFilters: []
 }>()
 
-const { tagCounts } = usePilotCounts(toRef(props, 'pilots'))
+// Sidebar counts don't need the table's 100ms streaming cadence — recompute
+// the three full-list aggregation passes at most every 500ms (trailing edge
+// included, so the final counts always settle correct).
+const throttledPilots = refThrottled(toRef(props, 'pilots'), 500)
+
+const { tagCounts } = usePilotCounts(throttledPilots)
 
 interface GroupInfo {
     id: number
@@ -33,7 +41,7 @@ const corporations = computed<GroupInfo[]>(() => {
         string,
         { id: number; ticker: string; count: number }
     >()
-    for (const p of props.pilots) {
+    for (const p of throttledPilots.value) {
         const name = p.character.corporation_name || 'Unknown'
         const id = p.character.corporation_id || 0
         const ticker = p.character.corporation_ticker || ''
@@ -54,7 +62,7 @@ const alliances = computed<GroupInfo[]>(() => {
         string,
         { id: number; ticker: string; count: number }
     >()
-    for (const p of props.pilots) {
+    for (const p of throttledPilots.value) {
         const name = p.character.alliance_name
         const id = p.character.alliance_id
         const ticker = p.character.alliance_ticker || ''
@@ -79,14 +87,6 @@ const hasFilters = computed(() => {
         props.selectedTags.size > 0
     )
 })
-
-function getCorpLogo(id: number): string {
-    return `https://images.evetech.net/corporations/${id}/logo?size=32`
-}
-
-function getAllianceLogo(id: number): string {
-    return `https://images.evetech.net/alliances/${id}/logo?size=32`
-}
 </script>
 
 <template>
@@ -130,15 +130,16 @@ function getAllianceLogo(id: number): string {
                         :key="t.tag"
                         class="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded border transition-colors"
                         :style="{
-                            backgroundColor: (t.color ?? '#94A3B8') + '22',
-                            color: t.color ?? '#CBD5E1',
+                            backgroundColor:
+                                (t.color ?? DEFAULT_TAG_COLOR) + '22',
+                            color: t.color ?? DEFAULT_TAG_TEXT_COLOR,
                             borderColor: selectedTags.has(t.tag)
-                                ? (t.color ?? '#94A3B8')
+                                ? (t.color ?? DEFAULT_TAG_COLOR)
                                 : 'transparent',
                         }"
                         :class="
                             selectedTags.has(t.tag)
-                                ? 'ring-1 ring-white/30'
+                                ? 'ring-1 ring-eve-text-1/30'
                                 : 'opacity-70 hover:opacity-100'
                         "
                         @click="emit('toggleTag', t.tag)"
@@ -160,7 +161,7 @@ function getAllianceLogo(id: number): string {
                     title="Alliances"
                     :items="alliances"
                     :selected="selectedAlliances"
-                    :get-logo-url="getAllianceLogo"
+                    :get-logo-url="getAllianceLogoUrl"
                     @toggle="emit('toggleAlliance', $event)"
                 />
             </div>
@@ -171,7 +172,7 @@ function getAllianceLogo(id: number): string {
                     title="Corporations"
                     :items="corporations"
                     :selected="selectedCorps"
-                    :get-logo-url="getCorpLogo"
+                    :get-logo-url="getCorporationLogoUrl"
                     @toggle="emit('toggleCorp', $event)"
                 />
             </div>

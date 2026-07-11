@@ -31,7 +31,7 @@ function openExternal(url: string) {
             <!-- Header -->
             <div class="flex items-center gap-4 mb-8">
                 <svg
-                    class="w-16 h-16 text-eve-cyan drop-shadow-[0_0_15px_rgba(0,212,255,0.3)]"
+                    class="w-16 h-16 text-eve-cyan drop-shadow-[0_0_15px_color-mix(in_srgb,var(--color-eve-cyan)_30%,transparent)]"
                     viewBox="0 0 24 24"
                     fill="none"
                 >
@@ -41,7 +41,7 @@ function openExternal(url: string) {
                         width="24"
                         height="24"
                         rx="4.5"
-                        fill="#12151a"
+                        fill="var(--color-eve-logo-tile)"
                     />
                     <g
                         stroke="currentColor"

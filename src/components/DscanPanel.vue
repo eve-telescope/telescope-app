@@ -1,29 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import {
-    Radar,
-    Ship,
-    Boxes,
-    X,
-    type LucideProps,
-    Rocket,
-    Swords,
-    ShieldHalf,
-    Shield,
-    Crosshair,
-    Zap,
-    Eye,
-    Bomb,
-    HeartPulse,
-    Anchor,
-    Truck,
-    Pickaxe,
-    CircleDot,
-    Satellite,
-} from 'lucide-vue-next'
-import type { FunctionalComponent } from 'vue'
+import { Radar, Ship, Boxes, X } from 'lucide-vue-next'
 import { Checkbox } from '@/components/ui/checkbox'
 import { getShipIconUrl } from '../utils/format'
+import {
+    barWidth as barWidthOf,
+    bucketByType,
+    classIcon,
+    countByClass,
+} from '../utils/dscan'
 import type { DscanParseResult } from '../types'
 
 const props = defineProps<{
@@ -36,51 +21,6 @@ const props = defineProps<{
 const showOther = ref(false)
 const selectedClass = ref<string | null>(null)
 
-// Map an EVE ship class (group name) to a fitting icon. Rules are checked in
-// order, so more specific classes must come before broader ones (e.g.
-// "battlecruiser" before "cruiser").
-const CLASS_ICON_RULES: [string, FunctionalComponent<LucideProps>][] = [
-    ['logistic', HeartPulse],
-    ['force auxiliary', HeartPulse],
-    ['capsule', CircleDot],
-    ['interceptor', Zap],
-    ['interdictor', Crosshair],
-    ['covert', Eye],
-    ['recon', Eye],
-    ['stealth', Bomb],
-    ['bomber', Bomb],
-    ['electronic', Satellite],
-    ['titan', Anchor],
-    ['supercarrier', Anchor],
-    ['carrier', Anchor],
-    ['dreadnought', Anchor],
-    ['capital', Anchor],
-    ['freighter', Truck],
-    ['industrial', Truck],
-    ['transport', Truck],
-    ['hauler', Truck],
-    ['mining', Pickaxe],
-    ['barge', Pickaxe],
-    ['exhumer', Pickaxe],
-    ['command', Swords],
-    ['destroyer', Swords],
-    ['battlecruiser', ShieldHalf],
-    ['marauder', Shield],
-    ['battleship', Shield],
-    ['frigate', Rocket],
-    ['shuttle', Rocket],
-]
-
-function classIcon(name: string): FunctionalComponent<LucideProps> {
-    const lower = name.toLowerCase()
-    for (const [keyword, icon] of CLASS_ICON_RULES) {
-        if (lower.includes(keyword)) {
-            return icon
-        }
-    }
-    return Ship
-}
-
 function toggleClass(name: string) {
     selectedClass.value = selectedClass.value === name ? null : name
 }
@@ -91,38 +31,6 @@ const shipEntries = computed(
 const otherEntries = computed(
     () => props.result?.entries.filter((e) => !e.is_ship) ?? []
 )
-
-interface TypeBucket {
-    type_id: number | null
-    type_name: string
-    subtitle: string
-    count: number
-}
-
-function bucketByType(
-    entries: DscanParseResult['entries'],
-    subtitleOf: (e: DscanParseResult['entries'][number]) => string
-): TypeBucket[] {
-    const map = new Map<string, TypeBucket>()
-
-    for (const entry of entries) {
-        const bucket = map.get(entry.type_name)
-        if (bucket) {
-            bucket.count += 1
-        } else {
-            map.set(entry.type_name, {
-                type_id: entry.type_id,
-                type_name: entry.type_name,
-                subtitle: subtitleOf(entry),
-                count: 1,
-            })
-        }
-    }
-
-    return [...map.values()].sort(
-        (a, b) => b.count - a.count || a.type_name.localeCompare(b.type_name)
-    )
-}
 
 // "24 Sabres", "30 Drakes" — instances per specific ship type.
 const shipTypes = computed(() =>
@@ -137,24 +45,14 @@ const visibleShipTypes = computed(() =>
 )
 
 // "20 Cruisers", "25 Logistics" — instances per ship class.
-const shipClasses = computed(() => {
-    const map = new Map<string, number>()
-    for (const entry of shipEntries.value) {
-        const key = entry.group_name ?? 'Unknown class'
-        map.set(key, (map.get(key) ?? 0) + 1)
-    }
-    return [...map.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-})
+const shipClasses = computed(() => countByClass(shipEntries.value))
 
 const maxClassCount = computed(() =>
     shipClasses.value.reduce((max, c) => Math.max(max, c.count), 0)
 )
 
 function classBarWidth(count: number): string {
-    if (maxClassCount.value === 0) return '0%'
-    return `${Math.max(4, (count / maxClassCount.value) * 100)}%`
+    return barWidthOf(count, maxClassCount.value, 4)
 }
 
 const otherTypes = computed(() =>
@@ -166,8 +64,7 @@ const maxShipCount = computed(() =>
 )
 
 function barWidth(count: number): string {
-    if (maxShipCount.value === 0) return '0%'
-    return `${Math.max(6, (count / maxShipCount.value) * 100)}%`
+    return barWidthOf(count, maxShipCount.value, 6)
 }
 </script>
 
@@ -180,17 +77,10 @@ function barWidth(count: number): string {
             {{ error }}
         </div>
 
-        <!-- Loading -->
+        <!-- Empty. Parsing is near-instant (in-memory SDE index), so there is
+             no loading state: previous results stay visible until replaced. -->
         <div
-            v-if="loading"
-            class="flex h-full items-center justify-center text-sm text-eve-text-3"
-        >
-            Parsing directional scan...
-        </div>
-
-        <!-- Empty -->
-        <div
-            v-else-if="!result"
+            v-if="!result"
             class="flex h-full flex-col items-center justify-center gap-4 text-eve-text-3"
         >
             <Radar class="h-16 w-16 opacity-20" :stroke-width="1" />
@@ -271,7 +161,12 @@ function barWidth(count: number): string {
                             No ships detected in this scan.
                         </p>
 
-                        <ul v-else class="space-y-1">
+                        <TransitionGroup
+                            v-else
+                            tag="ul"
+                            name="row-fade"
+                            class="relative space-y-1"
+                        >
                             <li
                                 v-for="item in visibleShipTypes"
                                 :key="item.type_name"
@@ -310,7 +205,7 @@ function barWidth(count: number): string {
                                     {{ item.count }}
                                 </div>
                             </li>
-                        </ul>
+                        </TransitionGroup>
 
                         <!-- Other objects (revealed via toggle) -->
                         <template v-if="showOther && otherTypes.length > 0">
@@ -320,7 +215,11 @@ function barWidth(count: number): string {
                                 <Boxes class="h-3.5 w-3.5" />
                                 OTHER OBJECTS
                             </div>
-                            <ul class="space-y-1">
+                            <TransitionGroup
+                                tag="ul"
+                                name="row-fade"
+                                class="relative space-y-1"
+                            >
                                 <li
                                     v-for="item in otherTypes"
                                     :key="item.type_name"
@@ -353,7 +252,7 @@ function barWidth(count: number): string {
                                         {{ item.count }}
                                     </div>
                                 </li>
-                            </ul>
+                            </TransitionGroup>
                         </template>
                     </div>
                 </div>
@@ -368,7 +267,11 @@ function barWidth(count: number): string {
                         BY CLASS
                     </h3>
                     <div class="min-h-0 flex-1 overflow-auto px-5 pb-4">
-                        <ul class="space-y-1">
+                        <TransitionGroup
+                            tag="ul"
+                            name="row-fade"
+                            class="relative space-y-1"
+                        >
                             <li v-for="item in shipClasses" :key="item.name">
                                 <button
                                     class="group relative flex w-full items-center gap-2.5 overflow-hidden rounded-md border px-2.5 py-2 text-left transition-colors"
@@ -421,7 +324,7 @@ function barWidth(count: number): string {
                                     </span>
                                 </button>
                             </li>
-                        </ul>
+                        </TransitionGroup>
                         <p
                             v-if="shipClasses.length === 0"
                             class="text-sm text-eve-text-3"

@@ -1,13 +1,17 @@
 use log::{debug, error, warn};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::AppHandle;
-use tauri_plugin_cache::CacheExt;
 
+use super::{cache_get_json, cache_set};
 use crate::models::CharacterInfo;
 
 const DEFAULT_TTL_SECS: u64 = 3600;
+// Corp/alliance renames and ticker changes shouldn't stay stale for a day;
+// an hour is plenty — the cache's main job is deduping affiliation lookups
+// within and between scans, not long-term storage.
+const AFFILIATION_TTL_SECS: u64 = 3600;
 
 #[derive(Debug, Deserialize)]
 struct EsiCharacter {
@@ -16,14 +20,9 @@ struct EsiCharacter {
     alliance_id: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
-struct EsiCorporation {
-    name: String,
-    ticker: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct EsiAlliance {
+/// Corporations and alliances share the same name/ticker shape in ESI.
+#[derive(Debug, Serialize, Deserialize)]
+struct EsiAffiliation {
     name: String,
     ticker: String,
 }
@@ -85,15 +84,7 @@ pub async fn resolve_character_ids(
 }
 
 pub fn try_get_cached_character(app: &AppHandle, character_id: i64) -> Option<CharacterInfo> {
-    let cache_key = format!("char:{}", character_id);
-    let cache = app.cache();
-
-    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
-        if let Ok(cached) = serde_json::from_value::<CharacterInfo>(cached_value) {
-            return Some(cached);
-        }
-    }
-    None
+    cache_get_json(app, &format!("char:{}", character_id))
 }
 
 pub async fn fetch_character_info(
@@ -105,9 +96,6 @@ pub async fn fetch_character_info(
         debug!("Cache HIT for character {}", character_id);
         return Ok(cached);
     }
-
-    let cache_key = format!("char:{}", character_id);
-    let cache = app.cache();
 
     let char_url = format!(
         "https://esi.evetech.net/latest/characters/{}/?datasource=tranquility",
@@ -137,46 +125,35 @@ pub async fn fetch_character_info(
         .await
         .map_err(|e| format!("Failed to parse character: {}", e))?;
 
-    let corp_url = format!(
-        "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
-        esi_char.corporation_id
+    // Corp and alliance are independent lookups — fetch them concurrently.
+    let corp_fut = fetch_affiliation(
+        app,
+        client,
+        format!("corp:{}", esi_char.corporation_id),
+        format!(
+            "https://esi.evetech.net/latest/corporations/{}/?datasource=tranquility",
+            esi_char.corporation_id
+        ),
     );
-    let (corp_name, corp_ticker) = match client.get(&corp_url).send().await {
-        Ok(resp) => resp
-            .json::<EsiCorporation>()
-            .await
-            .ok()
-            .map(|c| (Some(c.name), Some(c.ticker)))
-            .unwrap_or((None, None)),
-        Err(e) => {
-            warn!(
-                "Failed to fetch corporation {}: {}",
-                esi_char.corporation_id, e
-            );
-            (None, None)
-        }
-    };
-
-    let (alliance_name, alliance_ticker) = if let Some(alliance_id) = esi_char.alliance_id {
-        let alliance_url = format!(
-            "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
-            alliance_id
-        );
-        match client.get(&alliance_url).send().await {
-            Ok(resp) => resp
-                .json::<EsiAlliance>()
+    let alliance_fut = async {
+        match esi_char.alliance_id {
+            Some(alliance_id) => {
+                fetch_affiliation(
+                    app,
+                    client,
+                    format!("alliance:{}", alliance_id),
+                    format!(
+                        "https://esi.evetech.net/latest/alliances/{}/?datasource=tranquility",
+                        alliance_id
+                    ),
+                )
                 .await
-                .ok()
-                .map(|a| (Some(a.name), Some(a.ticker)))
-                .unwrap_or((None, None)),
-            Err(e) => {
-                warn!("Failed to fetch alliance {}: {}", alliance_id, e);
-                (None, None)
             }
+            None => (None, None),
         }
-    } else {
-        (None, None)
     };
+    let ((corp_name, corp_ticker), (alliance_name, alliance_ticker)) =
+        tokio::join!(corp_fut, alliance_fut);
 
     let info = CharacterInfo {
         id: character_id,
@@ -189,23 +166,51 @@ pub async fn fetch_character_info(
         alliance_ticker,
     };
 
-    let options = Some(tauri_plugin_cache::SetItemOptions {
-        ttl: Some(ttl_secs),
-        compress: None,
-        compression_method: None,
-    });
-
-    if let Err(e) = cache.set(
-        cache_key.clone(),
-        serde_json::to_value(&info).unwrap(),
-        options,
-    ) {
-        warn!("Failed to cache character {}: {}", character_id, e);
-    } else {
-        debug!("Cached character {} for {}s", character_id, ttl_secs);
-    }
+    cache_set(
+        app,
+        &format!("char:{}", character_id),
+        &info,
+        ttl_secs,
+        false,
+    );
 
     Ok(info)
+}
+
+/// Fetch a corp or alliance name/ticker with its own cache entry, so pilots
+/// sharing an affiliation don't refetch it. Failures degrade to (None, None).
+///
+/// Note: concurrent lookups of the same affiliation can still race between
+/// the cache check and the cache write, causing a few duplicate fetches
+/// (bounded by the 8-way lookup concurrency cap). Single-flighting the
+/// request per cache key would be the deeper fix.
+async fn fetch_affiliation(
+    app: &AppHandle,
+    client: &Client,
+    cache_key: String,
+    url: String,
+) -> (Option<String>, Option<String>) {
+    if let Some(cached) = cache_get_json::<EsiAffiliation>(app, &cache_key) {
+        return (Some(cached.name), Some(cached.ticker));
+    }
+
+    let affiliation = match client.get(&url).send().await {
+        Ok(resp) => match resp.json::<EsiAffiliation>().await {
+            Ok(affiliation) => affiliation,
+            Err(e) => {
+                warn!("Failed to parse {}: {}", cache_key, e);
+                return (None, None);
+            }
+        },
+        Err(e) => {
+            warn!("Failed to fetch {}: {}", cache_key, e);
+            return (None, None);
+        }
+    };
+
+    cache_set(app, &cache_key, &affiliation, AFFILIATION_TTL_SECS, false);
+
+    (Some(affiliation.name), Some(affiliation.ticker))
 }
 
 fn parse_expires_to_secs(header: Option<&str>) -> Option<u64> {
@@ -221,5 +226,32 @@ fn parse_expires_to_secs(header: Option<&str>) -> Option<u64> {
         Some((expires - now).num_seconds() as u64)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_expires_to_secs;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn future_expires_yields_remaining_seconds() {
+        let header = (Utc::now() + Duration::seconds(120)).to_rfc2822();
+        let secs = parse_expires_to_secs(Some(&header)).expect("future date should parse");
+        // Allow slack for test execution time.
+        assert!((115..=120).contains(&secs), "got {}", secs);
+    }
+
+    #[test]
+    fn past_expires_yields_none() {
+        let header = (Utc::now() - Duration::seconds(60)).to_rfc2822();
+        assert_eq!(parse_expires_to_secs(Some(&header)), None);
+    }
+
+    #[test]
+    fn missing_or_malformed_header_yields_none() {
+        assert_eq!(parse_expires_to_secs(None), None);
+        assert_eq!(parse_expires_to_secs(Some("not a date")), None);
+        assert_eq!(parse_expires_to_secs(Some("")), None);
     }
 }

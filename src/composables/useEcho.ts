@@ -1,35 +1,59 @@
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import Pusher from 'pusher-js'
-import { configureEcho, echoIsConfigured } from '@laravel/echo-vue'
-import { isAuthenticated } from '../stores/intel'
+import { configureEcho, echo, echoIsConfigured } from '@laravel/echo-vue'
+import { apiToken } from '../stores/intel'
 import { API_BASE_URL } from '../utils/config'
-import { invoke } from '@tauri-apps/api/core'
+
+declare global {
+    interface Window {
+        Pusher: typeof Pusher
+    }
+}
 
 // Make Pusher available globally for Echo
-;(window as any).Pusher = Pusher
+window.Pusher = Pusher
 
 export const echoReady = ref(false)
 
 /**
- * Configure Echo once the user is authenticated. The actual channel
- * subscriptions are handled by <EchoSubscriber> keyed on activeNetworkId.
+ * Disconnect the current Echo socket, if any. echo-vue has no "unconfigure":
+ * `echoIsConfigured()` stays true forever, so we close the underlying
+ * connection ourselves. A later `configureEcho()` drops the cached instance,
+ * meaning the next subscription builds a fresh connection with fresh auth.
+ */
+function disconnectEcho() {
+    if (!echoIsConfigured()) return
+    try {
+        echo().disconnect()
+    } catch {
+        // Echo may not have instantiated a connection yet — nothing to close.
+    }
+}
+
+/**
+ * Configure Echo whenever the API token changes — including a rotation while
+ * already authenticated, which must swap the socket's stale bearer token.
+ * The actual channel subscriptions are handled by <EchoSubscriber> keyed on
+ * activeNetworkId.
  */
 export function useEchoConnection() {
     watch(
-        isAuthenticated,
-        async (authed) => {
-            if (!authed) {
-                echoReady.value = false
-                return
-            }
-            if (echoIsConfigured()) {
-                echoReady.value = true
-                return
-            }
-            const state = await invoke<{ api_token: string | null }>(
-                'get_intel_state'
-            )
-            if (!state.api_token) return
+        apiToken,
+        async (token) => {
+            // Tear down on any change: logout stops here, a new/rotated
+            // token reconnects below.
+            echoReady.value = false
+            disconnectEcho()
+            if (!token) return
+
+            // Let the echoReady=false render flush so App.vue's
+            // v-if="echoReady" unmounts <EchoSubscriber>; the false→true
+            // cycle forces a remount that resubscribes on the new socket.
+            await nextTick()
+
+            // The token changed again while we yielded — that newer watcher
+            // invocation owns the reconnect now.
+            if (token !== apiToken.value) return
 
             configureEcho({
                 broadcaster: 'reverb',
@@ -46,7 +70,7 @@ export function useEchoConnection() {
                 authEndpoint: `${API_BASE_URL}/broadcasting/auth`,
                 auth: {
                     headers: {
-                        Authorization: `Bearer ${state.api_token}`,
+                        Authorization: `Bearer ${token}`,
                     },
                 },
             })

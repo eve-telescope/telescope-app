@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { platform } from '@tauri-apps/plugin-os'
 import { Crosshair, Minus, Square, X, Copy, Layers } from 'lucide-vue-next'
@@ -35,8 +36,13 @@ onMounted(async () => {
         await appWindow.setDecorations(false)
     }
 
-    appWindow.onResized(async () => {
+    // Resize events fire continuously during a drag-resize; debounce so the
+    // isMaximized IPC round-trip runs once per gesture settle.
+    const syncMaximized = useDebounceFn(async () => {
         isMaximized.value = await appWindow.isMaximized()
+    }, 150)
+    appWindow.onResized(() => {
+        syncMaximized()
     })
 
     appWindow.onCloseRequested(async () => {
@@ -100,7 +106,7 @@ async function close() {
                     :class="
                         activeTab === item.value
                             ? 'bg-eve-bg-3 text-eve-text-1'
-                            : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5'
+                            : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-hover'
                     "
                     @click="emit('update:activeTab', item.value)"
                 >
@@ -116,7 +122,7 @@ async function close() {
                 :class="
                     isOverlayOpen
                         ? 'bg-eve-cyan/20 text-eve-cyan'
-                        : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5'
+                        : 'text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-hover'
                 "
                 @click="toggleOverlay"
                 title="Toggle overlay window"
@@ -127,14 +133,14 @@ async function close() {
 
             <template v-if="!isMac">
                 <button
-                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-white/10 hover:text-eve-text-1 transition-colors"
+                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-eve-bg-hover hover:text-eve-text-1 transition-colors"
                     @click="minimize"
                     title="Minimize"
                 >
                     <Minus class="w-4 h-4" :stroke-width="1.5" />
                 </button>
                 <button
-                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-white/10 hover:text-eve-text-1 transition-colors"
+                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-eve-bg-hover hover:text-eve-text-1 transition-colors"
                     @click="toggleMaximize"
                     :title="isMaximized ? 'Restore' : 'Maximize'"
                 >
@@ -146,7 +152,7 @@ async function close() {
                     <Square v-else class="w-3 h-3" :stroke-width="1.5" />
                 </button>
                 <button
-                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-[#c42b1c] hover:text-white transition-colors"
+                    class="w-10 h-8 flex items-center justify-center text-eve-text-3 hover:bg-eve-win-close hover:text-eve-text-1 transition-colors"
                     @click="close"
                     title="Close"
                 >

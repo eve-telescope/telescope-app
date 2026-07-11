@@ -14,7 +14,7 @@ const percent = computed(() => {
 <template>
     <div class="space-y-1">
         <div class="flex justify-between text-[9px] text-eve-text-3">
-            <span v-if="progress.cache_hits > 0" class="text-green-400">
+            <span v-if="progress.cache_hits > 0" class="text-eve-green">
                 {{ progress.cache_hits }} cached
             </span>
             <span v-else>Fetching...</span>

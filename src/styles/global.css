@@ -1,29 +1,36 @@
 @import 'tailwindcss';
 
 @theme {
-    --color-eve-bg-0: #05080c;
-    --color-eve-bg-1: #0a0f15;
-    --color-eve-bg-2: #111820;
-    --color-eve-bg-3: #1a232e;
-    --color-eve-bg-hover: #1f2a38;
+    /* Neutral dark surface ramp. Text steps hold ≥4.5:1 (WCAG AA) on
+       every surface they appear on; text-2 and up hold ≥7:1. */
+    --color-eve-bg-0: #0a0a0b;
+    --color-eve-bg-1: #101012;
+    --color-eve-bg-2: #16161a;
+    --color-eve-bg-3: #232329;
+    --color-eve-bg-hover: #26262d;
 
-    --color-eve-text-1: #e4ebf5;
-    --color-eve-text-2: #8899aa;
-    --color-eve-text-3: #556677;
+    --color-eve-text-1: #f2f2f4;
+    --color-eve-text-2: #b4b4bd;
+    --color-eve-text-3: #8b8b96;
 
     --color-eve-cyan: #00d4ff;
     --color-eve-cyan-dim: #0099bb;
     --color-eve-orange: #ff9944;
     --color-eve-green: #44ddaa;
     --color-eve-red: #ff5566;
-    --color-eve-border: #2a3545;
+    --color-eve-border: #2c2c34;
+
+    /* Windows titlebar close-button hover (Fluent/Win32 convention). */
+    --color-eve-win-close: #c42b1c;
+    /* Telescope logo icon tile background (matches the app icon asset). */
+    --color-eve-logo-tile: #12151a;
 
     --color-eve-threat-extreme: #ff2255;
     --color-eve-threat-high: #ff6633;
     --color-eve-threat-moderate: #ffaa22;
     --color-eve-threat-low: #44ddbb;
-    --color-eve-threat-minimal: #667788;
-    --color-eve-threat-unknown: #445566;
+    --color-eve-threat-minimal: #7f8fa0;
+    --color-eve-threat-unknown: #75849a;
 
     --font-sans:
         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -33,24 +40,74 @@
 @layer base {
     html {
         @apply bg-eve-bg-0 text-eve-text-1 font-sans text-[13px] leading-normal;
+    }
+
+    /* Shared column template for the pilot table header and rows.
+       Kept as one class so header and PilotRow can never drift apart.
+       Divs instead of <table>: WKWebView can't composite animated
+       table-row elements, and the scan cross-fade needs row transitions. */
+    .pilot-grid {
+        display: grid;
+        grid-template-columns:
+            64px minmax(180px, 1.6fr) minmax(110px, 1fr)
+            minmax(140px, 1.2fr) minmax(140px, 1.2fr) 168px
+            56px 72px 84px 56px 56px 64px;
+        align-items: center;
+    }
+
+    /* Shared list cross-fade (pilot table, d-scan lists): rows present in
+       both lists stay put (same key), removed rows fade out in place while
+       the rest FLIP-move, and new rows fade in. */
+    .row-fade-move,
+    .row-fade-enter-active,
+    .row-fade-leave-active {
+        transition:
+            opacity 0.25s ease,
+            transform 0.25s ease;
+    }
+
+    .row-fade-leave-to {
+        opacity: 0;
+    }
+
+    /* Entering rows grow from zero height while fading, so the list expands
+       smoothly with the cascade instead of pre-allocating an invisible gap.
+       The max-height target only needs to exceed the tallest entering row
+       (rows enter collapsed, never expanded); it's removed with the class. */
+    .row-fade-enter-from {
+        opacity: 0;
+        max-height: 0;
+    }
+
+    .row-fade-enter-to {
+        max-height: 56px;
+    }
+
+    /* Staggered cascade for batch inserts: each row sets --row-stagger from
+       its position within the ENTERING batch (not the absolute list index),
+       delaying only the enter transition (leave/move/hover unaffected). */
+    .row-fade-enter-active {
+        overflow: hidden;
+        transition:
+            opacity 0.25s ease,
+            max-height 0.25s ease;
+        transition-delay: var(--row-stagger, 0ms);
+    }
+
+    /* Take leaving rows out of flow so survivors can move up smoothly.
+       Requires the list container to be position:relative. */
+    .row-fade-leave-active {
+        position: absolute;
+        left: 0;
+        right: 0;
+    }
+
+    /* One global scrollbar treatment for every scroll container.
+       scrollbar-width does not inherit, so it must be set on all elements,
+       and the standard scrollbar-* properties are used exclusively (mixing
+       them with ::-webkit-scrollbar is what caused inconsistent rendering). */
+    * {
         scrollbar-width: thin;
-        scrollbar-color: #1a232e #0a0f15;
-    }
-
-    ::-webkit-scrollbar {
-        @apply w-2 h-2;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: #0a0f15;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: #1a232e;
-        @apply rounded;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: #2a3545;
+        scrollbar-color: var(--color-eve-bg-3) transparent;
     }
 }

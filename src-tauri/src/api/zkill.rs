@@ -1,8 +1,8 @@
 use log::{debug, error, warn};
 use reqwest::Client;
 use tauri::AppHandle;
-use tauri_plugin_cache::CacheExt;
 
+use super::{cache_get_json, cache_set};
 use crate::models::{ActivityHeatmap, ShipStats, SystemStats, ZkillStats};
 
 const DEFAULT_TTL_SECS: u64 = 3600;
@@ -14,15 +14,7 @@ pub struct FetchResult {
 }
 
 pub fn try_get_cached(app: &AppHandle, character_id: i64) -> Option<ZkillStats> {
-    let cache_key = format!("zkill:{}", character_id);
-    let cache = app.cache();
-
-    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
-        if let Ok(cached) = serde_json::from_value::<ZkillStats>(cached_value) {
-            return Some(cached);
-        }
-    }
-    None
+    cache_get_json(app, &format!("zkill:{}", character_id))
 }
 
 pub async fn fetch_stats(
@@ -31,16 +23,13 @@ pub async fn fetch_stats(
     character_id: i64,
 ) -> Result<FetchResult, String> {
     let cache_key = format!("zkill:{}", character_id);
-    let cache = app.cache();
 
-    if let Ok(Some(cached_value)) = cache.get(&cache_key) {
-        if let Ok(cached) = serde_json::from_value::<ZkillStats>(cached_value) {
-            debug!("Cache HIT for zKill {}", character_id);
-            return Ok(FetchResult {
-                stats: cached,
-                from_cache: true,
-            });
-        }
+    if let Some(cached) = try_get_cached(app, character_id) {
+        debug!("Cache HIT for zKill {}", character_id);
+        return Ok(FetchResult {
+            stats: cached,
+            from_cache: true,
+        });
     }
 
     let url = format!(
@@ -83,12 +72,7 @@ pub async fn fetch_stats(
         debug!("No zKill data for character {}", character_id);
         let stats = ZkillStats::default();
 
-        let options = Some(tauri_plugin_cache::SetItemOptions {
-            ttl: Some(EMPTY_TTL_SECS),
-            compress: None,
-            compression_method: None,
-        });
-        let _ = cache.set(cache_key, serde_json::to_value(&stats).unwrap(), options);
+        cache_set(app, &cache_key, &stats, EMPTY_TTL_SECS, false);
 
         return Ok(FetchResult {
             stats,
@@ -103,21 +87,7 @@ pub async fn fetch_stats(
 
     let stats = parse_zkill_response(&json);
 
-    let options = Some(tauri_plugin_cache::SetItemOptions {
-        ttl: Some(ttl_secs),
-        compress: Some(true),
-        compression_method: None,
-    });
-
-    if let Err(e) = cache.set(
-        cache_key.clone(),
-        serde_json::to_value(&stats).unwrap(),
-        options,
-    ) {
-        warn!("Failed to cache zKill {}: {}", character_id, e);
-    } else {
-        debug!("Cached zKill {} for {}s", character_id, ttl_secs);
-    }
+    cache_set(app, &cache_key, &stats, ttl_secs, true);
 
     Ok(FetchResult {
         stats,
@@ -285,12 +255,12 @@ fn parse_activity(json: &serde_json::Value) -> Option<ActivityHeatmap> {
 
     let mut data: Vec<Vec<i64>> = vec![vec![0; 24]; 7];
 
-    for day in 0..7 {
+    for (day, row) in data.iter_mut().enumerate() {
         if let Some(day_data) = activity.get(day.to_string()).and_then(|v| v.as_object()) {
             for (hour_str, count) in day_data {
                 if let Ok(hour) = hour_str.parse::<usize>() {
                     if hour < 24 {
-                        data[day][hour] = count.as_i64().unwrap_or(0);
+                        row[hour] = count.as_i64().unwrap_or(0);
                     }
                 }
             }
@@ -298,4 +268,142 @@ fn parse_activity(json: &serde_json::Value) -> Option<ActivityHeatmap> {
     }
 
     Some(ActivityHeatmap { max, data })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_max_age_extracts_value() {
+        assert_eq!(parse_max_age_secs(Some("max-age=3600")), Some(3600));
+        assert_eq!(
+            parse_max_age_secs(Some("public, max-age=600, immutable")),
+            Some(600)
+        );
+        assert_eq!(parse_max_age_secs(Some("no-cache")), None);
+        assert_eq!(parse_max_age_secs(Some("max-age=abc")), None);
+        assert_eq!(parse_max_age_secs(None), None);
+    }
+
+    #[test]
+    fn parse_zkill_response_reads_all_fields() {
+        let json = json!({
+            "shipsDestroyed": 150,
+            "shipsLost": 20,
+            "iskDestroyed": 1.5e9,
+            "iskLost": 2.0e8,
+            "soloKills": 40,
+            "soloLosses": 5,
+            "dangerRatio": 85.0,
+            "gangRatio": 60.0,
+            "pointsDestroyed": 5000,
+            "activepvp": { "kills": { "count": 30 } },
+            "avgGangSize": 3.5
+        });
+        let stats = parse_zkill_response(&json);
+        assert_eq!(stats.ships_destroyed, 150);
+        assert_eq!(stats.ships_lost, 20);
+        assert_eq!(stats.isk_destroyed, 1.5e9);
+        assert_eq!(stats.solo_kills, 40);
+        assert_eq!(stats.danger_ratio, 85.0);
+        assert_eq!(stats.active_pvp_kills, 30);
+        assert_eq!(stats.avg_attackers, 3.5);
+        assert!(stats.top_ships.is_empty());
+        assert!(stats.activity.is_none());
+    }
+
+    #[test]
+    fn parse_zkill_response_defaults_on_missing_fields() {
+        let stats = parse_zkill_response(&json!({}));
+        assert_eq!(stats.ships_destroyed, 0);
+        assert_eq!(stats.isk_destroyed, 0.0);
+        assert_eq!(stats.avg_attackers, 1.0);
+        assert!(stats.top_ships.is_empty());
+        assert!(stats.top_systems.is_empty());
+        assert!(stats.activity.is_none());
+    }
+
+    fn ship(id: i64, name: &str, kills: i64) -> serde_json::Value {
+        json!({
+            "shipTypeID": id,
+            "shipName": name,
+            "groupID": 26,
+            "groupName": "Cruiser",
+            "kills": kills,
+            "losses": 1
+        })
+    }
+
+    #[test]
+    fn parse_top_ships_truncates_to_five_and_skips_invalid() {
+        let values: Vec<_> = (1..=7).map(|i| ship(i, "Ship", i * 10)).collect();
+        let json = json!({
+            "topLists": [{ "type": "shipType", "values": values }]
+        });
+        let ships = parse_top_ships(&json);
+        assert_eq!(ships.len(), 5);
+        assert_eq!(ships[0].kills, 10);
+
+        // shipTypeID 0 (or missing) rows are dropped.
+        let json = json!({
+            "topLists": [{ "type": "shipType", "values": [ship(0, "Bad", 5), ship(3, "Ok", 5)] }]
+        });
+        let ships = parse_top_ships(&json);
+        assert_eq!(ships.len(), 1);
+        assert_eq!(ships[0].ship_type_id, 3);
+    }
+
+    #[test]
+    fn parse_top_ships_ignores_other_list_types() {
+        let json = json!({
+            "topLists": [{ "type": "solarSystem", "values": [ship(1, "Ship", 5)] }]
+        });
+        assert!(parse_top_ships(&json).is_empty());
+    }
+
+    #[test]
+    fn parse_top_systems_reads_and_truncates() {
+        let values: Vec<_> = (1..=6)
+            .map(|i| {
+                json!({
+                    "solarSystemID": 30000000 + i,
+                    "solarSystemName": format!("System {}", i),
+                    "kills": i
+                })
+            })
+            .collect();
+        let json = json!({
+            "topLists": [{ "type": "solarSystem", "values": values }]
+        });
+        let systems = parse_top_systems(&json);
+        assert_eq!(systems.len(), 5);
+        assert_eq!(systems[0].system_name, "System 1");
+    }
+
+    #[test]
+    fn parse_activity_builds_7x24_grid() {
+        let json = json!({
+            "activity": {
+                "max": 12,
+                "0": { "5": 3, "23": 7 },
+                "6": { "0": 1 },
+                "9": { "0": 99 },          // day out of range: ignored
+                "1": { "24": 5, "x": 2 }   // hour out of range / non-numeric: ignored
+            }
+        });
+        let heatmap = parse_activity(&json).expect("activity should parse");
+        assert_eq!(heatmap.max, 12);
+        assert_eq!(heatmap.data.len(), 7);
+        assert_eq!(heatmap.data[0][5], 3);
+        assert_eq!(heatmap.data[0][23], 7);
+        assert_eq!(heatmap.data[6][0], 1);
+        assert_eq!(heatmap.data[1].iter().sum::<i64>(), 0);
+    }
+
+    #[test]
+    fn parse_activity_missing_yields_none() {
+        assert!(parse_activity(&json!({})).is_none());
+    }
 }

@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, shallowRef, onMounted, onUnmounted } from 'vue'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openExternalUrl } from '../utils/openExternal'
 import type { PilotIntel } from '../types'
 import { getPortraitUrl, getShipIconUrl, getKdRatio } from '../utils/format'
-import { getPilotTags } from '../utils/pilotTags'
+import {
+    getPilotTags,
+    DEFAULT_TAG_COLOR,
+    DEFAULT_TAG_TEXT_COLOR,
+    type PilotTag,
+} from '../utils/pilotTags'
 import { usePilotCounts } from '../composables/usePilotCounts'
 import { useSyncedFilters } from '../composables/useSyncedFilters'
 import { usePilotSort } from '../composables/usePilotSort'
@@ -26,7 +31,37 @@ function openShipZkill(characterId: number, shipTypeId: number) {
     }
 }
 
-const pilots = ref<PilotIntel[]>([])
+// shallowRef: only ever reassigned wholesale from the sync/clear listeners.
+const pilots = shallowRef<PilotIntel[]>([])
+
+// One class string per threat level — avoids six toLowerCase() calls and a
+// six-entry class object per row per render.
+const THREAT_DOT_CLASSES: Record<string, string> = {
+    extreme: 'bg-eve-threat-extreme',
+    high: 'bg-eve-threat-high',
+    moderate: 'bg-eve-threat-moderate',
+    low: 'bg-eve-threat-low',
+    minimal: 'bg-eve-threat-minimal',
+    unknown: 'bg-eve-threat-unknown',
+}
+
+function threatDotClass(level: string): string {
+    return THREAT_DOT_CLASSES[level.toLowerCase()] ?? 'bg-eve-threat-unknown'
+}
+
+// getPilotTags() is memoized per pilot (see pilotTags.ts), so the returned
+// PilotTag objects are stable across renders — memoize a style object per
+// tag so rows don't allocate fresh style objects every render.
+const tagStyleCache = new WeakMap<PilotTag, { color: string }>()
+
+function tagStyle(t: PilotTag): { color: string } {
+    let style = tagStyleCache.get(t)
+    if (!style) {
+        style = { color: t.color ?? DEFAULT_TAG_TEXT_COLOR }
+        tagStyleCache.set(t, style)
+    }
+    return style
+}
 
 const { settings } = useSettings()
 const locked = computed({
@@ -198,7 +233,7 @@ async function toggleLock() {
                         :class="
                             threatFilter === 'extreme'
                                 ? 'bg-eve-threat-extreme/30'
-                                : 'hover:bg-white/10'
+                                : 'hover:bg-eve-bg-hover'
                         "
                     >
                         <span
@@ -215,7 +250,7 @@ async function toggleLock() {
                         :class="
                             threatFilter === 'high'
                                 ? 'bg-eve-threat-high/30'
-                                : 'hover:bg-white/10'
+                                : 'hover:bg-eve-bg-hover'
                         "
                     >
                         <span
@@ -232,7 +267,7 @@ async function toggleLock() {
                         :class="
                             threatFilter === 'moderate'
                                 ? 'bg-eve-threat-moderate/30'
-                                : 'hover:bg-white/10'
+                                : 'hover:bg-eve-bg-hover'
                         "
                     >
                         <span
@@ -249,7 +284,7 @@ async function toggleLock() {
                         :class="
                             threatFilter === 'low'
                                 ? 'bg-eve-threat-low/30'
-                                : 'hover:bg-white/10'
+                                : 'hover:bg-eve-bg-hover'
                         "
                     >
                         <span
@@ -266,7 +301,7 @@ async function toggleLock() {
                         :class="
                             threatFilter === 'minimal'
                                 ? 'bg-eve-threat-minimal/30'
-                                : 'hover:bg-white/10'
+                                : 'hover:bg-eve-bg-hover'
                         "
                     >
                         <span
@@ -287,9 +322,9 @@ async function toggleLock() {
                         class="px-1.5 py-0.5 font-bold rounded transition-colors"
                         :style="{
                             backgroundColor:
-                                (t.color ?? '#94A3B8') +
+                                (t.color ?? DEFAULT_TAG_COLOR) +
                                 (selectedTags.has(t.tag) ? '66' : '33'),
-                            color: t.color ?? '#CBD5E1',
+                            color: t.color ?? DEFAULT_TAG_TEXT_COLOR,
                         }"
                     >
                         {{ t.count }} {{ t.tag }}
@@ -400,33 +435,20 @@ async function toggleLock() {
         <!-- Pilots List -->
         <div
             v-if="pilots.length > 0"
-            class="pilots-list flex-1 overflow-y-scroll overflow-x-hidden bg-eve-bg-0 relative"
+            class="pilots-list flex-1 overflow-y-auto [scrollbar-gutter:stable] overflow-x-hidden bg-eve-bg-0 relative"
         >
             <TransitionGroup name="row">
                 <div
                     v-for="(pilot, index) in sortedPilots"
                     :key="pilot.character.id"
                     :style="{ '--i': index }"
-                    class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 items-center px-3 py-1 border-b border-eve-border/20 hover:bg-eve-bg-hover/50 transition-colors cursor-pointer"
+                    class="grid grid-cols-[32px_minmax(80px,1fr)_70px_45px_45px_60px_30px_48px_32px_32px_32px] gap-1 items-center px-3 py-1 border-b border-eve-border/20 hover:bg-eve-bg-hover/50 transition-colors cursor-pointer [content-visibility:auto] [contain-intrinsic-size:auto_31px]"
                     @click="openZkill(pilot.character.id)"
                 >
                     <!-- Threat dot -->
                     <span
                         class="w-2 h-2 rounded-full justify-self-center"
-                        :class="{
-                            'bg-eve-threat-extreme':
-                                pilot.threat_level.toLowerCase() === 'extreme',
-                            'bg-eve-threat-high':
-                                pilot.threat_level.toLowerCase() === 'high',
-                            'bg-eve-threat-moderate':
-                                pilot.threat_level.toLowerCase() === 'moderate',
-                            'bg-eve-threat-low':
-                                pilot.threat_level.toLowerCase() === 'low',
-                            'bg-eve-threat-minimal':
-                                pilot.threat_level.toLowerCase() === 'minimal',
-                            'bg-eve-threat-unknown':
-                                pilot.threat_level.toLowerCase() === 'unknown',
-                        }"
+                        :class="threatDotClass(pilot.threat_level)"
                     ></span>
 
                     <!-- Portrait + Pilot Name -->
@@ -452,7 +474,7 @@ async function toggleLock() {
                             v-for="t in getPilotTags(pilot)"
                             :key="t.key"
                             class="text-[7px] font-bold shrink-0"
-                            :style="{ color: t.color ?? '#CBD5E1' }"
+                            :style="tagStyle(t)"
                             >{{ t.tag }}</span
                         >
                     </div>
@@ -594,7 +616,9 @@ async function toggleLock() {
 </template>
 
 <style>
-.row-move,
+/* No .row-move rule: with no transform transition on the move class,
+   Vue's TransitionGroup skips the FLIP measurement pass entirely, so
+   reordering snaps while enter/leave still animate. */
 .row-enter-active,
 .row-leave-active {
     transition: all 0.3s ease;

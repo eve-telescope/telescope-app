@@ -133,19 +133,16 @@ useEchoConnection()
             <TabsContent value="local" class="mt-0 flex-1 overflow-hidden">
                 <div class="flex h-full overflow-hidden">
                     <div class="flex-1 flex flex-col overflow-hidden">
+                        <!-- No spinner: results stream in and animate into
+                             the table; InputPanel already shows progress.
+                             While a scan is in flight the area stays blank so
+                             the empty state doesn't flash between lists. -->
                         <PilotTable
                             v-if="pilots.length > 0"
                             :pilots="filteredPilots"
+                            :streaming="loading"
                         />
                         <EmptyState v-else-if="!loading" />
-                        <div
-                            v-else
-                            class="flex-1 flex items-center justify-center"
-                        >
-                            <div
-                                class="w-6 h-6 border-2 border-eve-cyan border-t-transparent rounded-full animate-spin"
-                            ></div>
-                        </div>
                     </div>
 
                     <FilterSidebar

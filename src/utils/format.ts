@@ -28,9 +28,18 @@ export function getThreatClass(level: string): string {
     return `threat-${level.toLowerCase()}`
 }
 
+/**
+ * Numeric kill/death ratio, used for sorting: kills per loss, or raw kill
+ * count when nothing was lost (so undefeated pilots still rank sensibly).
+ */
+export function getKdRatioValue(destroyed: number, lost: number): number {
+    if (lost === 0) return destroyed
+    return destroyed / lost
+}
+
 export function getKdRatio(destroyed: number, lost: number): string {
     if (lost === 0) return destroyed > 0 ? '∞' : '0'
-    return (destroyed / lost).toFixed(1)
+    return getKdRatioValue(destroyed, lost).toFixed(1)
 }
 
 export function getPpk(points: number, kills: number): number {
@@ -50,4 +59,15 @@ export function getPortraitUrl(characterId: number, size = 32): string {
 
 export function getShipIconUrl(typeId: number, size = 32): string {
     return `https://images.evetech.net/types/${typeId}/icon?size=${size}`
+}
+
+export function getCorporationLogoUrl(
+    corporationId: number,
+    size = 32
+): string {
+    return `https://images.evetech.net/corporations/${corporationId}/logo?size=${size}`
+}
+
+export function getAllianceLogoUrl(allianceId: number, size = 32): string {
+    return `https://images.evetech.net/alliances/${allianceId}/logo?size=${size}`
 }

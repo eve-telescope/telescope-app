@@ -1,5 +1,12 @@
-import type { PilotIntel } from '../types'
-import { resolvePilotAnnotations } from '../stores/intel'
+import type {
+    IntelAnnotation,
+    PilotIntel,
+    ResolvedIntelAnnotation,
+} from '../types'
+import {
+    annotationsByTargetKey,
+    resolvePilotAnnotations,
+} from '../stores/intel'
 import { getFlagLabels } from './intel'
 
 export interface PilotTag {
@@ -17,7 +24,49 @@ const FLAG_COLORS: Record<string, string> = {
     SOLO: '#38BDF8',
 }
 
-export function getPilotTags(pilot: PilotIntel): PilotTag[] {
+// Fallback chip colors for tags without an explicit annotation color.
+// Kept as hex literals (not CSS variables) because callers append
+// 2-digit alpha suffixes to build inline background/border styles.
+export const DEFAULT_TAG_COLOR = '#94A3B8'
+export const DEFAULT_TAG_TEXT_COLOR = '#CBD5E1'
+
+// Memoizes the no-explicit-annotations path of getPilotTags. Pilot objects
+// are stable across flushes (the accumulator reuses them), so the WeakMap
+// key survives re-renders; a replaced pilot object simply misses and is
+// recomputed. `index` is the annotationsByTargetKey object identity — the
+// index computed produces a fresh object whenever intel entries change, so
+// an identity mismatch means the cached tags may be stale.
+const tagCache = new WeakMap<
+    PilotIntel,
+    { index: Record<string, IntelAnnotation[]>; tags: PilotTag[] }
+>()
+
+export function getPilotTags(
+    pilot: PilotIntel,
+    // Callers that already resolved annotations can pass them to avoid
+    // resolving twice per pilot.
+    resolved?: ResolvedIntelAnnotation[]
+): PilotTag[] {
+    if (resolved === undefined) {
+        // Reading .value here also registers the reactive dependency for
+        // callers inside computeds, exactly like the uncached path does.
+        const index = annotationsByTargetKey.value
+        const cached = tagCache.get(pilot)
+        if (cached && cached.index === index) {
+            return cached.tags
+        }
+        const tags = computePilotTags(pilot, resolvePilotAnnotations(pilot))
+        tagCache.set(pilot, { index, tags })
+        return tags
+    }
+
+    return computePilotTags(pilot, resolved)
+}
+
+function computePilotTags(
+    pilot: PilotIntel,
+    resolved: ResolvedIntelAnnotation[]
+): PilotTag[] {
     const tags: PilotTag[] = []
     const seen = new Set<string>()
 
@@ -32,7 +81,7 @@ export function getPilotTags(pilot: PilotIntel): PilotTag[] {
     }
 
     // Intel annotation tags
-    for (const match of resolvePilotAnnotations(pilot)) {
+    for (const match of resolved) {
         for (const tag of match.annotation.tags) {
             if (!seen.has(tag)) {
                 seen.add(tag)

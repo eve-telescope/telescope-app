@@ -53,7 +53,7 @@ pub struct SystemStats {
     pub kills: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct PilotFlags {
     pub is_cyno: bool,
     pub is_recon: bool,

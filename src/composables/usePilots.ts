@@ -1,6 +1,7 @@
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, shallowRef, computed, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event'
+import { useThrottleFn, tryOnScopeDispose } from '@vueuse/core'
 import type { PilotIntel } from '../types'
 import {
     lookupIntel,
@@ -9,6 +10,8 @@ import {
     entries,
 } from '../stores/intel'
 import { getPilotTagStrings } from '../utils/pilotTags'
+import { PilotAccumulator } from '../utils/pilotAccumulator'
+import { useOverlayWindow } from './useOverlayWindow'
 
 export interface LookupProgress {
     current: number
@@ -30,38 +33,17 @@ interface FilterState {
 
 const FILTER_SYNC_EVENT = 'filter-state-sync'
 
-const THREAT_ORDER: Record<string, number> = {
-    EXTREME: 0,
-    HIGH: 1,
-    MODERATE: 2,
-    LOW: 3,
-    MINIMAL: 4,
-    Unknown: 5,
-}
-
-function insertSorted(pilots: PilotIntel[], pilot: PilotIntel): PilotIntel[] {
-    if (pilots.some((p) => p.character.id === pilot.character.id)) {
-        return pilots
-    }
-
-    const newPilots = [...pilots]
-    const pilotOrder = THREAT_ORDER[pilot.threat_level] ?? 5
-
-    let insertIndex = newPilots.findIndex(
-        (p) => (THREAT_ORDER[p.threat_level] ?? 5) > pilotOrder
-    )
-
-    if (insertIndex === -1) {
-        insertIndex = newPilots.length
-    }
-
-    newPilots.splice(insertIndex, 0, pilot)
-    return newPilots
-}
+// How often (ms) streamed results are flushed to the table and mirrored to
+// the overlay window. Keeps large scans from re-sorting and re-broadcasting
+// the whole array on every single pilot result.
+const SYNC_THROTTLE_MS = 100
 
 export function usePilots() {
     const pilotNames = ref('')
-    const pilots = ref<PilotIntel[]>([])
+    // shallowRef: the array is only ever reassigned wholesale in
+    // flushPilots(), so deep reactivity over every pilot object is wasted
+    // work. Row components receive plain objects and never mutate them.
+    const pilots = shallowRef<PilotIntel[]>([])
     const loading = ref(false)
     const error = ref<string | null>(null)
     const progress = ref<LookupProgress | null>(null)
@@ -74,12 +56,38 @@ export function usePilots() {
     let unlistenPilotResult: UnlistenFn | null = null
     let unlistenSyncRequest: UnlistenFn | null = null
     let unlistenFilterSync: UnlistenFn | null = null
-    let listenersSetup = false
     let isSyncingFilters = false
+    // Set by cleanup(). setupListeners() checks it after every await so a
+    // listener that registers after the scope was disposed is immediately
+    // unsubscribed instead of leaking.
+    let disposed = false
 
     const threatFilter = ref<string | null>(null)
     const corpFilter = ref<string | null>(null)
     const allianceFilter = ref<string | null>(null)
+
+    // Streamed pilot results accumulate here (O(1) dedup + insert) and are
+    // flushed into the reactive `pilots` array at most every SYNC_THROTTLE_MS.
+    const accumulator = new PilotAccumulator()
+
+    // Shared module-level ref: tracks whether the overlay window exists so
+    // flushes can skip the cross-window IPC broadcast when nobody listens.
+    const { isOverlayOpen } = useOverlayWindow()
+
+    // Flush accumulated results into the reactive array and mirror them to
+    // the overlay window in the same step, so both views stay in lockstep.
+    // The array is insertion-ordered; each view applies its own sort.
+    function flushPilots() {
+        pilots.value = accumulator.toArray()
+        // Only broadcast when the overlay exists — when it (re)opens it
+        // emits 'overlay-sync-request' and gets hydrated from the listener
+        // below, so skipped flushes are never lost.
+        if (isOverlayOpen.value) {
+            emit('pilots-sync', pilots.value)
+        }
+    }
+
+    const throttledFlush = useThrottleFn(flushPilots, SYNC_THROTTLE_MS, true)
 
     function broadcastFilterState() {
         if (!isSyncingFilters) {
@@ -93,32 +101,41 @@ export function usePilots() {
     }
 
     async function setupListeners() {
-        if (listenersSetup) return
-
-        unlistenProgress?.()
-        unlistenPilotResult?.()
-        unlistenSyncRequest?.()
-        unlistenFilterSync?.()
-
-        unlistenProgress = await listen<LookupProgress>(
+        const onProgress = await listen<LookupProgress>(
             'lookup-progress',
             (event) => {
                 progress.value = event.payload
             }
         )
+        if (disposed) {
+            onProgress()
+            return
+        }
+        unlistenProgress = onProgress
 
-        unlistenPilotResult = await listen<PilotResult>(
+        const onPilotResult = await listen<PilotResult>(
             'pilot-result',
             (event) => {
-                pilots.value = insertSorted(pilots.value, event.payload.pilot)
+                accumulator.upsert(event.payload.pilot)
+                throttledFlush()
             }
         )
+        if (disposed) {
+            onPilotResult()
+            return
+        }
+        unlistenPilotResult = onPilotResult
 
-        unlistenSyncRequest = await listen('overlay-sync-request', () => {
+        const onSyncRequest = await listen('overlay-sync-request', () => {
             emit('pilots-sync', pilots.value)
         })
+        if (disposed) {
+            onSyncRequest()
+            return
+        }
+        unlistenSyncRequest = onSyncRequest
 
-        unlistenFilterSync = await listen<FilterState>(
+        const onFilterSync = await listen<FilterState>(
             FILTER_SYNC_EVENT,
             (event) => {
                 isSyncingFilters = true
@@ -142,26 +159,23 @@ export function usePilots() {
                 isSyncingFilters = false
             }
         )
-
-        listenersSetup = true
+        if (disposed) {
+            onFilterSync()
+            return
+        }
+        unlistenFilterSync = onFilterSync
     }
 
-    setupListeners()
-
-    watch(
-        pilots,
-        (newPilots) => {
-            emit('pilots-sync', newPilots)
-        },
-        { deep: true }
-    )
+    // Lookups await this so results streamed right after startup (e.g. from
+    // a deep link) can't arrive before the pilot-result listener exists.
+    const listenersReady = setupListeners()
 
     const pilotCount = computed(() => {
         return pilotNames.value.split('\n').filter((n) => n.trim()).length
     })
 
     // Prune stale tag filters when intel entries change
-    watch(entries, () => {
+    const stopTagPrune = watch(entries, () => {
         if (selectedTags.size === 0 || pilots.value.length === 0) return
         const availableTags = new Set(pilots.value.flatMap(getPilotTagStrings))
         for (const tag of selectedTags) {
@@ -217,17 +231,41 @@ export function usePilots() {
             pilotNames.value = namesOverride
         }
 
+        await listenersReady
+
         loading.value = true
-        pilots.value = []
+        // Cross-fade between scans: keep rows whose pilot is also in the new
+        // scan (fresh data streams in under the same key, updating in place),
+        // drop only the rows that left (they fade out), and let new pilots
+        // fade in as their results arrive — instead of blanking the list.
+        const newNames = new Set(
+            names
+                .split('\n')
+                .map((n) => n.trim().toLowerCase())
+                .filter(Boolean)
+        )
+        accumulator.retainWhere((p) =>
+            newNames.has(p.character.name.toLowerCase())
+        )
+        flushPilots()
         error.value = null
         progress.value = null
         clearEntries()
         clearFilters()
 
         try {
-            await invoke('lookup_pilots', {
+            const finalPilots = await invoke<PilotIntel[]>('lookup_pilots', {
                 namesText: names,
             })
+
+            // Event delivery isn't guaranteed to complete before the invoke
+            // resolves, so merge the authoritative return value — upserting
+            // by character id makes overlap with streamed events safe. This
+            // ensures every pilot is visible before the intel lookup below.
+            for (const pilot of finalPilots) {
+                accumulator.upsert(pilot)
+            }
+            flushPilots()
 
             // After scan completes, look up intel for all scanned entities
             if (isAuthenticated.value) {
@@ -246,6 +284,7 @@ export function usePilots() {
             console.error('Failed to lookup pilots:', e)
             error.value = String(e)
         } finally {
+            flushPilots()
             loading.value = false
             progress.value = null
         }
@@ -305,16 +344,27 @@ export function usePilots() {
 
     function clear() {
         pilotNames.value = ''
-        pilots.value = []
+        accumulator.clear()
+        flushPilots()
         error.value = null
         progress.value = null
         clearFilters()
     }
 
     function cleanup() {
+        disposed = true
         unlistenProgress?.()
         unlistenPilotResult?.()
+        unlistenSyncRequest?.()
+        unlistenFilterSync?.()
+        unlistenProgress = null
+        unlistenPilotResult = null
+        unlistenSyncRequest = null
+        unlistenFilterSync = null
+        stopTagPrune()
     }
+
+    tryOnScopeDispose(cleanup)
 
     return {
         pilotNames,

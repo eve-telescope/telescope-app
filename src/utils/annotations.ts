@@ -14,6 +14,9 @@ export const PRESET_ANNOTATION_TAGS: Array<{ tag: string; color: string }> = [
     { tag: 'NEUTRAL', color: '#FFD93D' },
 ]
 
+/** Fallback badge color for annotations without a preset/custom color. */
+export const DEFAULT_ANNOTATION_COLOR = '#8b8b96'
+
 const TAG_DELIMITER = ' | '
 
 export function normalizeAnnotationTag(tag: string): string {

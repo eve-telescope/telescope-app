@@ -18,12 +18,15 @@ vi.mock('../utils/config', () => ({
 import type { NetworkAccess, NetworkDetail } from '../types'
 
 describe('Permission-based visibility rules', () => {
-    function makeAccess(permission: string, isOwner = false): NetworkAccess {
+    function makeAccess(
+        permission: NetworkAccess['permission'],
+        isOwner = false
+    ): NetworkAccess {
         return {
             id: 1,
             accessible_type: 'character',
             accessible_id: 12345,
-            permission: permission as any,
+            permission,
             is_owner: isOwner,
             expires_at: null,
             entity: {
@@ -76,7 +79,7 @@ describe('Scan history visibility rules', () => {
         // Rule: v-if="isAuthenticated && activeNetwork && recentScans.length > 0"
         const isAuthenticated = false
         const activeNetwork = null
-        const recentScans: any[] = []
+        const recentScans: unknown[] = []
 
         const shouldShow =
             isAuthenticated && activeNetwork !== null && recentScans.length > 0

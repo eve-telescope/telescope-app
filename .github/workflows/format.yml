@@ -1,16 +1,23 @@
-name: Format
+name: Auto-format
+
+# Formats code on pull requests and pushes the fixes back to the branch.
+# Only runs for branches in this repository (forks don't get write access);
+# fork PRs are still covered by the format check in ci.yml.
 
 on:
-  push:
-    branches: [main, release]
   pull_request:
     branches: [main, release]
 
 jobs:
   format:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -26,9 +33,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Check frontend formatting
-        run: npm run format:check
+      - name: Format frontend
+        run: npm run format
 
-      - name: Check Rust formatting
-        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Format Rust
+        run: cargo fmt --all
+        working-directory: src-tauri
 
+      - name: Commit formatting fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'style: auto-format'

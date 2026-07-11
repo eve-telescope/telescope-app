@@ -3,6 +3,13 @@ import { describe, it, expect, vi } from 'vitest'
 // Mock the intel store before importing pilotTags
 vi.mock('../stores/intel', () => ({
     resolvePilotAnnotations: vi.fn(() => []),
+    // Fresh identity per read so getPilotTags' memo cache never hits and
+    // every call exercises the mocked resolvePilotAnnotations.
+    annotationsByTargetKey: {
+        get value() {
+            return {}
+        },
+    },
 }))
 
 import { getPilotTags, getPilotTagStrings } from './pilotTags'

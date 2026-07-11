@@ -153,7 +153,7 @@ function lineCount(text: string): number {
                         SCAN
                         <span
                             v-if="pilotCount > 0"
-                            class="rounded bg-black/20 px-1.5 py-0.5 text-[10px]"
+                            class="rounded bg-eve-bg-0/60 px-1.5 py-0.5 text-[10px]"
                             >{{ pilotCount }}</span
                         >
                     </template>
@@ -214,7 +214,7 @@ function lineCount(text: string): number {
                     RECENT SCANS
                 </h3>
                 <button
-                    class="p-0.5 rounded text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5 transition-colors disabled:opacity-50"
+                    class="p-0.5 rounded text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-hover transition-colors disabled:opacity-50"
                     :disabled="refreshingScans"
                     title="Refresh scans"
                     @click="loadScans"

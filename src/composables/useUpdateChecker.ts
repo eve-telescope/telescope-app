@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
@@ -31,9 +31,17 @@ export function useUpdateChecker() {
         dismissed.value = true
     }
 
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
     onMounted(() => {
         checkForUpdate()
-        setInterval(checkForUpdate, CHECK_INTERVAL_MS)
+        intervalId = setInterval(checkForUpdate, CHECK_INTERVAL_MS)
+    })
+
+    onUnmounted(() => {
+        if (intervalId != null) {
+            clearInterval(intervalId)
+        }
     })
 
     return {

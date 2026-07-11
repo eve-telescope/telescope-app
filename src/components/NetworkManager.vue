@@ -46,11 +46,13 @@ import {
 } from '../stores/intel'
 import type { EntityType, PermissionLevel } from '../types'
 import {
+    DEFAULT_ANNOTATION_COLOR,
     PRESET_ANNOTATION_TAGS,
     getAnnotationColor,
     normalizeAnnotationTag,
     parseAnnotationTags,
 } from '../utils/annotations'
+import { DEFAULT_TAG_COLOR, DEFAULT_TAG_TEXT_COLOR } from '../utils/pilotTags'
 
 const props = withDefaults(
     defineProps<{
@@ -211,6 +213,14 @@ const entryForm = ref<{
     tags: '',
     notes: '',
 })
+
+const parsedTags = computed(() => parseAnnotationTags(entryForm.value.tags))
+
+const parsedTagSet = computed(() => new Set(parsedTags.value))
+
+const previewColor = computed(
+    () => getAnnotationColor(parsedTags.value) ?? DEFAULT_ANNOTATION_COLOR
+)
 
 function resetEntryForm() {
     editingAnnotationId.value = null
@@ -426,7 +436,7 @@ watch(
             >
                 <button
                     v-if="view === 'detail'"
-                    class="p-1 rounded text-eve-text-3 hover:text-eve-text-1 hover:bg-white/5 transition-colors"
+                    class="p-1 rounded text-eve-text-3 hover:text-eve-text-1 hover:bg-eve-bg-hover transition-colors"
                     @click="handleBack"
                 >
                     <ChevronLeft class="w-4 h-4" />
@@ -795,11 +805,11 @@ watch(
                                                     :style="{
                                                         backgroundColor:
                                                             (entry.color ||
-                                                                '#94A3B8') +
+                                                                DEFAULT_TAG_COLOR) +
                                                             '22',
                                                         color:
                                                             entry.color ||
-                                                            '#CBD5E1',
+                                                            DEFAULT_TAG_TEXT_COLOR,
                                                     }"
                                                     >{{ tag }}</Badge
                                                 >
@@ -1021,9 +1031,7 @@ watch(
                                 :style="{
                                     backgroundColor: preset.color + '22',
                                     color: preset.color,
-                                    border: parseAnnotationTags(
-                                        entryForm.tags
-                                    ).includes(preset.tag)
+                                    border: parsedTagSet.has(preset.tag)
                                         ? `1px solid ${preset.color}`
                                         : '1px solid transparent',
                                 }"
@@ -1052,10 +1060,7 @@ watch(
                     </div>
 
                     <div
-                        v-if="
-                            annotationEntity.name &&
-                            parseAnnotationTags(entryForm.tags).length > 0
-                        "
+                        v-if="annotationEntity.name && parsedTags.length > 0"
                         class="flex items-center gap-2 px-3 py-2 rounded-md bg-eve-bg-2/50 border border-eve-border/50"
                     >
                         <span class="text-[10px] text-eve-text-3 shrink-0"
@@ -1063,21 +1068,13 @@ watch(
                         >
                         <div class="flex flex-wrap gap-1">
                             <Badge
-                                v-for="tag in parseAnnotationTags(
-                                    entryForm.tags
-                                )"
+                                v-for="tag in parsedTags"
                                 :key="tag"
                                 variant="secondary"
                                 class="text-[9px] h-4 px-1.5"
                                 :style="{
-                                    backgroundColor:
-                                        (getAnnotationColor(
-                                            parseAnnotationTags(entryForm.tags)
-                                        ) ?? '#556677') + '33',
-                                    color:
-                                        getAnnotationColor(
-                                            parseAnnotationTags(entryForm.tags)
-                                        ) ?? '#556677',
+                                    backgroundColor: previewColor + '33',
+                                    color: previewColor,
                                 }"
                                 >{{ tag }}</Badge
                             >

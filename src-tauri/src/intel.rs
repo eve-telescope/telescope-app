@@ -106,3 +106,152 @@ pub fn calculate_threat_level(zkill: &Option<ZkillStats>) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ShipStats;
+
+    fn ship(group_id: i64, kills: i64) -> ShipStats {
+        ShipStats {
+            ship_type_id: 1,
+            ship_name: "Ship".to_string(),
+            group_id,
+            group_name: "Group".to_string(),
+            kills,
+            losses: 0,
+        }
+    }
+
+    fn stats_with_ships(ships: Vec<ShipStats>) -> Option<ZkillStats> {
+        Some(ZkillStats {
+            top_ships: ships,
+            ..ZkillStats::default()
+        })
+    }
+
+    #[test]
+    fn no_stats_yields_default_flags() {
+        assert_eq!(detect_pilot_flags(&None), PilotFlags::default());
+        assert_eq!(
+            detect_pilot_flags(&Some(ZkillStats::default())),
+            PilotFlags::default()
+        );
+    }
+
+    #[test]
+    fn recon_groups_set_recon_and_cyno() {
+        // Force recon (833) is both a recon group and a covert-cyno group.
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 1)]));
+        assert!(flags.is_recon);
+        assert!(flags.is_cyno);
+        assert!(!flags.is_blops);
+        assert!(!flags.is_capital);
+
+        // Combat recon (906) is recon but not covert-cyno.
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(906, 1)]));
+        assert!(flags.is_recon);
+        assert!(!flags.is_cyno);
+    }
+
+    #[test]
+    fn zero_kill_ships_do_not_set_flags() {
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 0)]));
+        assert_eq!(flags, PilotFlags::default());
+    }
+
+    #[test]
+    fn blops_sets_blops_and_cyno() {
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(898, 1)]));
+        assert!(flags.is_blops);
+        assert!(flags.is_cyno);
+    }
+
+    #[test]
+    fn supers_are_also_capitals() {
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(30, 1)])); // Titan
+        assert!(flags.is_super);
+        assert!(flags.is_capital);
+
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(485, 1)])); // Dreadnought
+        assert!(flags.is_capital);
+        assert!(!flags.is_super);
+    }
+
+    #[test]
+    fn solo_flag_requires_volume_and_ratio() {
+        let solo_stats = |destroyed, solo| {
+            Some(ZkillStats {
+                ships_destroyed: destroyed,
+                solo_kills: solo,
+                ..ZkillStats::default()
+            })
+        };
+
+        // > 30% solo of > 10 kills
+        assert!(detect_pilot_flags(&solo_stats(100, 40)).is_solo);
+        // Ratio below threshold
+        assert!(!detect_pilot_flags(&solo_stats(100, 30)).is_solo);
+        // Not enough total kills, even at 100% solo
+        assert!(!detect_pilot_flags(&solo_stats(10, 10)).is_solo);
+    }
+
+    #[test]
+    fn threat_unknown_without_data() {
+        assert_eq!(calculate_threat_level(&None), "Unknown");
+        assert_eq!(
+            calculate_threat_level(&Some(ZkillStats::default())),
+            "Unknown"
+        );
+    }
+
+    #[test]
+    fn threat_minimal_for_pure_loss_records() {
+        let stats = Some(ZkillStats {
+            ships_lost: 50,
+            ..ZkillStats::default()
+        });
+        assert_eq!(calculate_threat_level(&stats), "MINIMAL");
+    }
+
+    #[test]
+    fn threat_scales_with_activity() {
+        // Modest killer: log10(100)*10 = 20, k/d capped contribution.
+        let modest = Some(ZkillStats {
+            ships_destroyed: 100,
+            ships_lost: 100,
+            ..ZkillStats::default()
+        });
+        assert_eq!(calculate_threat_level(&modest), "LOW");
+
+        // Heavy hitter: high k/d, solo kills, danger ratio, active pvp.
+        let dangerous = Some(ZkillStats {
+            ships_destroyed: 1000,
+            ships_lost: 50,
+            solo_kills: 100,
+            danger_ratio: 90.0,
+            active_pvp_kills: 60,
+            ..ZkillStats::default()
+        });
+        assert_eq!(calculate_threat_level(&dangerous), "EXTREME");
+    }
+
+    #[test]
+    fn kd_ratio_contribution_is_capped() {
+        // 10 kills, 0 losses: kd = 10 (capped), score = 10 + 50 = 60 => HIGH.
+        let stats = Some(ZkillStats {
+            ships_destroyed: 10,
+            ships_lost: 0,
+            ..ZkillStats::default()
+        });
+        assert_eq!(calculate_threat_level(&stats), "HIGH");
+
+        // Same but 10000 kills, 0 losses: log10 grows, kd still capped at 10.
+        let stats = Some(ZkillStats {
+            ships_destroyed: 10000,
+            ships_lost: 0,
+            ..ZkillStats::default()
+        });
+        assert_eq!(calculate_threat_level(&stats), "EXTREME");
+    }
+}

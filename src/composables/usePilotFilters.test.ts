@@ -8,6 +8,13 @@ vi.mock('@tauri-apps/api/event', () => ({
 vi.mock('../utils/config', () => ({ API_BASE_URL: 'https://test.example.com' }))
 vi.mock('../stores/intel', () => ({
     resolvePilotAnnotations: vi.fn(() => []),
+    // Fresh identity per read so getPilotTags' memo cache never hits and
+    // every call exercises the mocked resolvePilotAnnotations.
+    annotationsByTargetKey: {
+        get value() {
+            return {}
+        },
+    },
 }))
 
 import { usePilotFilters } from './usePilotFilters'

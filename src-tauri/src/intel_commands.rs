@@ -1,10 +1,11 @@
-use log::info;
+use log::{info, warn};
+use reqwest::Client;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
 use crate::intel_state::IntelState;
 use crate::models::*;
-use crate::telescope_api;
+use crate::telescope_api::{self, TelescopeClient};
 
 fn upsert_scan_entry(entries: &mut Vec<IntelEntry>, entry: &IntelEntry) {
     if let Some(idx) = entries.iter().position(|e| e.id == entry.id) {
@@ -26,28 +27,39 @@ fn persist_state(app: &AppHandle, state: &IntelState) {
     }
 }
 
-/// Returns (base_url, token) from locked state.
-async fn api_config(state: &Mutex<IntelState>) -> Result<(String, String), String> {
-    let s = state.lock().await;
-    let token = s.api_token.clone().ok_or("Not authenticated")?;
-    Ok((s.api_base_url.clone(), token))
+/// Returns (base_url, authorized client) from locked state, reusing the
+/// cached client unless the token changed.
+async fn api_context(
+    state: &Mutex<IntelState>,
+    clients: &TelescopeClient,
+) -> Result<(String, Client), String> {
+    let (base_url, token) = {
+        let s = state.lock().await;
+        let token = s.api_token.clone().ok_or("Not authenticated")?;
+        (s.api_base_url.clone(), token)
+    };
+    let client = clients.for_token(&token)?;
+    Ok((base_url, client))
 }
 
 /// Re-fetches the selected network detail from the API and updates state.
+/// Failures are logged rather than surfaced: the local state was already
+/// updated optimistically and the next refetch will reconcile.
 async fn refetch_selected_network(
     app: &AppHandle,
     state: &Mutex<IntelState>,
+    client: &Client,
     base_url: &str,
-    token: &str,
     network_id: i64,
-) -> Result<(), String> {
-    let client = telescope_api::build_client(token)?;
-    if let Ok(detail) = telescope_api::get_network_detail(&client, base_url, network_id).await {
-        let mut s = state.lock().await;
-        s.selected_network = Some(detail);
-        emit_state(app, &s);
+) {
+    match telescope_api::get_network_detail(client, base_url, network_id).await {
+        Ok(detail) => {
+            let mut s = state.lock().await;
+            s.selected_network = Some(detail);
+            emit_state(app, &s);
+        }
+        Err(err) => warn!("[Intel] Failed to refresh network {}: {}", network_id, err),
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +87,7 @@ pub async fn set_api_base_url(
 pub async fn set_api_token(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     token: String,
 ) -> Result<(), String> {
     {
@@ -83,7 +96,7 @@ pub async fn set_api_token(
         persist_state(&app, &s);
         emit_state(&app, &s);
     }
-    fetch_networks(app, state).await
+    fetch_networks(app, state, clients).await
 }
 
 /// Applies an auth token exactly like the `set_api_token` command, but
@@ -92,7 +105,8 @@ pub async fn set_api_token(
 pub async fn apply_api_token(app: &AppHandle, token: String) -> Result<(), String> {
     use tauri::Manager;
     let state = app.state::<Mutex<IntelState>>();
-    set_api_token(app.clone(), state, token).await
+    let clients = app.state::<TelescopeClient>();
+    set_api_token(app.clone(), state, clients, token).await
 }
 
 #[tauri::command]
@@ -128,9 +142,9 @@ pub async fn set_active_network_ids(
 pub async fn fetch_networks(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
 ) -> Result<(), String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     let networks = telescope_api::fetch_networks(&client, &base_url).await?;
     info!("[Intel] Loaded {} networks", networks.len());
@@ -145,10 +159,10 @@ pub async fn fetch_networks(
 pub async fn create_network(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     name: String,
 ) -> Result<IntelNetwork, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     let network = telescope_api::create_network(&client, &base_url, &name).await?;
 
@@ -162,10 +176,10 @@ pub async fn create_network(
 pub async fn delete_network(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
 ) -> Result<(), String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::delete_network(&client, &base_url, network_id).await?;
 
@@ -182,10 +196,10 @@ pub async fn delete_network(
 pub async fn select_network(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
 ) -> Result<NetworkDetail, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     let detail = telescope_api::get_network_detail(&client, &base_url, network_id).await?;
 
@@ -210,14 +224,14 @@ pub async fn clear_selected_network(
 pub async fn lookup_intel(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     entity_ids: Vec<i64>,
 ) -> Result<(), String> {
     if entity_ids.is_empty() {
         return Ok(());
     }
 
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     let entries = telescope_api::lookup_intel(&client, &base_url, &entity_ids).await?;
     info!("[Intel] Lookup returned {} entries", entries.len());
@@ -229,9 +243,11 @@ pub async fn lookup_intel(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn add_intel_entry(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     entity_type: String,
     entity_id: i64,
@@ -240,7 +256,7 @@ pub async fn add_intel_entry(
     label: String,
     notes: Option<String>,
 ) -> Result<IntelEntry, String> {
-    let (base_url, token) = api_config(&state).await?;
+    let (base_url, client) = api_context(&state, &clients).await?;
     let network_name = {
         let s = state.lock().await;
         s.networks
@@ -249,7 +265,6 @@ pub async fn add_intel_entry(
             .map(|n| n.name.clone())
             .unwrap_or_default()
     };
-    let client = telescope_api::build_client(&token)?;
 
     let mut entry = telescope_api::add_intel_entry(
         &client,
@@ -270,7 +285,7 @@ pub async fn add_intel_entry(
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);
-        let _ = refetch_selected_network(&app, &state, &base_url, &token, network_id).await;
+        refetch_selected_network(&app, &state, &client, &base_url, network_id).await;
     } else {
         emit_state(&app, &s);
     }
@@ -279,9 +294,11 @@ pub async fn add_intel_entry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_intel_entry(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     entry_id: i64,
     entity_type: String,
@@ -291,7 +308,7 @@ pub async fn update_intel_entry(
     label: String,
     notes: Option<String>,
 ) -> Result<IntelEntry, String> {
-    let (base_url, token) = api_config(&state).await?;
+    let (base_url, client) = api_context(&state, &clients).await?;
     let network_name = {
         let s = state.lock().await;
         s.networks
@@ -300,7 +317,6 @@ pub async fn update_intel_entry(
             .map(|n| n.name.clone())
             .unwrap_or_default()
     };
-    let client = telescope_api::build_client(&token)?;
 
     let mut entry = telescope_api::update_intel_entry(
         &client,
@@ -322,7 +338,7 @@ pub async fn update_intel_entry(
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);
-        let _ = refetch_selected_network(&app, &state, &base_url, &token, network_id).await;
+        refetch_selected_network(&app, &state, &client, &base_url, network_id).await;
     } else {
         emit_state(&app, &s);
     }
@@ -334,11 +350,11 @@ pub async fn update_intel_entry(
 pub async fn remove_intel_entry(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     entry_id: i64,
 ) -> Result<(), String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::remove_intel_entry(&client, &base_url, network_id, entry_id).await?;
 
@@ -347,7 +363,7 @@ pub async fn remove_intel_entry(
 
     if s.selected_network.as_ref().map(|n| n.id) == Some(network_id) {
         drop(s);
-        let _ = refetch_selected_network(&app, &state, &base_url, &token, network_id).await;
+        refetch_selected_network(&app, &state, &client, &base_url, network_id).await;
     } else {
         emit_state(&app, &s);
     }
@@ -355,17 +371,18 @@ pub async fn remove_intel_entry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn add_network_access(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     accessible_type: String,
     accessible_id: i64,
     accessible_name: String,
     permission: String,
 ) -> Result<NetworkAccess, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     let access = telescope_api::add_network_access(
         &client,
@@ -378,7 +395,7 @@ pub async fn add_network_access(
     )
     .await?;
 
-    let _ = refetch_selected_network(&app, &state, &base_url, &token, network_id).await;
+    refetch_selected_network(&app, &state, &client, &base_url, network_id).await;
     Ok(access)
 }
 
@@ -386,28 +403,28 @@ pub async fn add_network_access(
 pub async fn remove_network_access(
     app: AppHandle,
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     access_id: i64,
 ) -> Result<(), String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::remove_network_access(&client, &base_url, network_id, access_id).await?;
 
-    let _ = refetch_selected_network(&app, &state, &base_url, &token, network_id).await;
+    refetch_selected_network(&app, &state, &client, &base_url, network_id).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn share_scan(
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     scan_type: String,
     raw_text: String,
     solar_system: Option<String>,
 ) -> Result<NetworkScan, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::share_scan(
         &client,
@@ -423,11 +440,11 @@ pub async fn share_scan(
 #[tauri::command]
 pub async fn fetch_network_scans(
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     page: Option<i64>,
 ) -> Result<PaginatedScans, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::fetch_scans(&client, &base_url, network_id, page.unwrap_or(1)).await
 }
@@ -435,11 +452,11 @@ pub async fn fetch_network_scans(
 #[tauri::command]
 pub async fn fetch_network_scan(
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     network_id: i64,
     scan_id: i64,
 ) -> Result<NetworkScan, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::fetch_scan(&client, &base_url, network_id, scan_id).await
 }
@@ -447,11 +464,11 @@ pub async fn fetch_network_scan(
 #[tauri::command]
 pub async fn search_entities(
     state: State<'_, Mutex<IntelState>>,
+    clients: State<'_, TelescopeClient>,
     query: String,
     category: Option<String>,
 ) -> Result<Vec<SearchResult>, String> {
-    let (base_url, token) = api_config(&state).await?;
-    let client = telescope_api::build_client(&token)?;
+    let (base_url, client) = api_context(&state, &clients).await?;
 
     telescope_api::search_entities(&client, &base_url, &query, category.as_deref()).await
 }

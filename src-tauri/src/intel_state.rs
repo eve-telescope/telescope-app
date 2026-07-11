@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::models::{IntelEntry, IntelNetwork, NetworkDetail};
 
@@ -35,7 +35,7 @@ struct PersistedState {
 }
 
 impl IntelState {
-    pub fn save(&self, app_dir: &PathBuf) {
+    pub fn save(&self, app_dir: &Path) {
         let path = app_dir.join("intel_state.json");
         let persisted = PersistedState {
             api_token: self.api_token.clone(),
@@ -46,7 +46,7 @@ impl IntelState {
         }
     }
 
-    pub fn load(app_dir: &PathBuf) -> Self {
+    pub fn load(app_dir: &Path) -> Self {
         let path = app_dir.join("intel_state.json");
         if let Ok(json) = fs::read_to_string(path) {
             if let Ok(persisted) = serde_json::from_str::<PersistedState>(&json) {

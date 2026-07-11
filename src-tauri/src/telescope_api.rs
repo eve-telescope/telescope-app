@@ -1,18 +1,47 @@
 use reqwest::Client;
+use std::sync::Mutex;
 
 use crate::models::*;
 
 const USER_AGENT: &str = "Telescope | https://eve-telescope.com";
 
+/// Managed state that caches the authorized client so its connection pool is
+/// reused across commands. Rebuilt only when the token changes.
+#[derive(Default)]
+pub struct TelescopeClient {
+    cached: Mutex<Option<(String, Client)>>,
+}
+
+impl TelescopeClient {
+    pub fn for_token(&self, token: &str) -> Result<Client, String> {
+        let mut guard = self
+            .cached
+            .lock()
+            .map_err(|_| "HTTP client cache lock poisoned".to_string())?;
+
+        if let Some((cached_token, client)) = guard.as_ref() {
+            if cached_token == token {
+                return Ok(client.clone());
+            }
+        }
+
+        let client = build_client(token)?;
+        *guard = Some((token.to_string(), client.clone()));
+        Ok(client)
+    }
+}
+
 pub fn build_client(token: &str) -> Result<Client, String> {
+    // The token is user-provided (pasted), so header parsing can fail on
+    // control characters or non-ASCII input — surface an error, don't panic.
+    let auth_header = format!("Bearer {}", token)
+        .parse()
+        .map_err(|e| format!("Invalid API token: {}", e))?;
     Client::builder()
         .user_agent(USER_AGENT)
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", token).parse().unwrap(),
-            );
+            headers.insert(reqwest::header::AUTHORIZATION, auth_header);
             headers.insert(reqwest::header::ACCEPT, "application/json".parse().unwrap());
             headers.insert(
                 reqwest::header::CONTENT_TYPE,
@@ -114,6 +143,7 @@ pub async fn lookup_intel(
     resp.json().await.map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn add_intel_entry(
     client: &Client,
     base_url: &str,
@@ -144,6 +174,7 @@ pub async fn add_intel_entry(
     resp.json().await.map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_intel_entry(
     client: &Client,
     base_url: &str,

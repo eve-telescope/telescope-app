@@ -10,12 +10,16 @@ export interface Settings {
     overlayLocked: boolean
 }
 
-export const settingsStore = createStore<Settings>('settings', {
+export const DEFAULT_SETTINGS: Settings = {
     globalShortcut: 'CommandOrControl+Shift+V',
     autoScanOnShortcut: true,
     sortColumn: 'threat',
     sortDirection: 'desc',
     overlayLocked: false,
+}
+
+export const settingsStore = createStore<Settings>('settings', {
+    ...DEFAULT_SETTINGS,
 })
 
 const startPromise = settingsStore.$tauri.start()
@@ -34,13 +38,7 @@ export function useSettings() {
 
     async function resetSettings() {
         await startPromise
-        settingsStore.value = {
-            globalShortcut: 'CommandOrControl+Shift+V',
-            autoScanOnShortcut: true,
-            sortColumn: 'threat',
-            sortDirection: 'desc',
-            overlayLocked: false,
-        }
+        settingsStore.value = { ...DEFAULT_SETTINGS }
     }
 
     return {

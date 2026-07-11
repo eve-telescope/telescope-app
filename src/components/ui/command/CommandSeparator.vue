@@ -16,9 +16,7 @@ const delegatedProps = reactiveOmit(props, 'class')
     <Separator
         data-slot="command-separator"
         v-bind="delegatedProps"
-        :class="
-            cn('bg-neutral-200 -mx-1 h-px dark:bg-neutral-800', props.class)
-        "
+        :class="cn('bg-eve-border -mx-1 h-px', props.class)"
     >
         <slot />
     </Separator>

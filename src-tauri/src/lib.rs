@@ -62,6 +62,9 @@ pub fn run() {
             app.manage(Mutex::new(initial_state));
             app.manage(app_dir);
             app.manage(deep_link::PendingShare::default());
+            app.manage(telescope_api::TelescopeClient::default());
+            app.manage(sde::SdeService::default());
+
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
 

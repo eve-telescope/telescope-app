@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
 import { ChevronsUpDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,14 +39,35 @@ const open = ref(false)
 const query = ref('')
 const results = ref<SearchResult[]>([])
 
-async function handleSearch(value: string | number) {
-    query.value = String(value)
+// Monotonic token so an out-of-order response can't clobber newer results.
+let searchToken = 0
+
+async function performSearch(text: string) {
+    // A debounced call may fire after the query has already been shortened;
+    // don't resurrect stale results in that case.
     if (query.value.length < 2) return
+    const token = ++searchToken
     try {
-        results.value = await searchEntities(query.value, props.category)
+        const found = await searchEntities(text, props.category)
+        if (token === searchToken) {
+            results.value = found
+        }
     } catch {
-        results.value = []
+        if (token === searchToken) {
+            results.value = []
+        }
     }
+}
+
+const debouncedSearch = useDebounceFn(performSearch, 250)
+
+function handleSearch(value: string | number) {
+    query.value = String(value)
+    if (query.value.length < 2) {
+        results.value = []
+        return
+    }
+    debouncedSearch(query.value)
 }
 
 function select(entity: SearchResult) {

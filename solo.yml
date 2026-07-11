@@ -1,0 +1,35 @@
+# Visit https://soloterm.com to learn more
+name: telescope-app
+icon: null
+processes:
+    npm:dev:
+        command: npm run dev
+        working_dir: null
+        auto_start: true
+        auto_restart: false
+        restart_when_changed: []
+        env: {}
+
+    # Full Tauri app (spawns its own vite on port 1420 — stop npm:dev first)
+    tauri:dev:
+        command: npm run tauri dev
+        auto_start: false
+
+    test:watch:
+        command: npm run test:watch
+        auto_start: false
+
+    # Mirrors the frontend CI job: format check, lint, typecheck, tests
+    check:frontend:
+        command: npm run format:check && npm run lint && npm run typecheck && npm run test
+        auto_start: false
+
+    # Mirrors the Rust CI job: fmt check, clippy, tests
+    check:rust:
+        command: cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
+        working_dir: src-tauri
+        auto_start: false
+
+    format:
+        command: npm run format && (cd src-tauri && cargo fmt --all)
+        auto_start: false

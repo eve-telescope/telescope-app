@@ -48,6 +48,7 @@ useEcho<{ scan_id: number }>(channel, 'ScanShared', async (e) => {
 })
 </script>
 
+<!-- Renderless component: only subscribes to echo events. -->
 <template>
-    <!-- No UI, this component only subscribes to echo events -->
+    <slot />
 </template>

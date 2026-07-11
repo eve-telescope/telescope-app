@@ -10,7 +10,11 @@
         "tauri": "tauri",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "lint": "eslint --fix"
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "typecheck": "vue-tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest"
     },
     "dependencies": {
         "@laravel/echo-vue": "^2.3.3",
