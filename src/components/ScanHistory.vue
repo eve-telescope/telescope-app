@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useNow } from '@vueuse/core'
+import { useNow, useIntervalFn } from '@vueuse/core'
 import { ChevronLeft, ChevronRight, Radar, Users } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,7 +58,7 @@ function lineCount(rawText: string): number {
     return rawText.split('\n').filter((l) => l.trim()).length
 }
 
-const now = useNow({ interval: 30_000 })
+const now = useNow({ scheduler: (cb) => useIntervalFn(cb, 30_000) })
 
 function relativeTime(iso: string): string {
     const diff = now.value.getTime() - new Date(iso).getTime()
