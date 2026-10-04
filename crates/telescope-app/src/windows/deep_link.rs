@@ -49,7 +49,7 @@ pub fn init(args: Vec<String>, forwarded: UnboundedReceiver<String>, cx: &mut Ap
     if let Some(mut urls) = urls {
         cx.spawn(async move |cx: &mut AsyncApp| {
             while let Some(url) = urls.next().await {
-                let _ = cx.update(|cx| handle(&url, cx));
+                cx.update(|cx| handle(&url, cx));
             }
         })
         .detach();
@@ -58,7 +58,7 @@ pub fn init(args: Vec<String>, forwarded: UnboundedReceiver<String>, cx: &mut Ap
     let mut forwarded = forwarded;
     cx.spawn(async move |cx: &mut AsyncApp| {
         while let Some(line) = forwarded.next().await {
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 main_window::focus(cx);
                 if line.starts_with("telescope:") {
                     handle(&line, cx);
@@ -85,7 +85,7 @@ fn handle(url: &str, cx: &mut App) {
                 Ok(share) => {
                     info!("[DeepLink] Loaded {} pilots from share", share.pilots.len());
                     let text = share.pilots.join("\n");
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         main_window::focus(cx);
                         main_window::scan(&text, cx);
                     });

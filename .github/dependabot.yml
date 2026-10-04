@@ -1,17 +1,7 @@
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      npm-minor-patch:
-        update-types:
-          - minor
-          - patch
-
   - package-ecosystem: cargo
-    directory: /src-tauri
+    directory: /
     schedule:
       interval: weekly
     groups:
@@ -19,6 +9,9 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # gpui-kit pins a matching gpui-pre snapshot; upgrade them together.
+      - dependency-name: "gpui-pre*"
 
   - package-ecosystem: github-actions
     directory: /

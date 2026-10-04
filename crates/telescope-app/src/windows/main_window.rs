@@ -1,16 +1,15 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Selectable as _, Sizable as _, TitleBar};
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window, WindowBounds,
+    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global, IntoElement,
+    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, WindowBounds,
     WindowOptions, div, point, px, size,
 };
 use telescope_core::view::scan_input::ScanInputKind;
 
 use crate::state::Stores;
 use crate::state::scan::ScanEvent;
-use crate::theme::{self, BG_0, BG_3, BG_HOVER, CYAN, TEXT_1, TEXT_3};
+use crate::theme::{self, BG_0, BG_3, CYAN, TEXT_1, TEXT_3};
 use crate::ui::{Icon, IconName};
 use crate::views::dscan_panel::DscanPanel;
 use crate::views::input_panel::InputPanel;
@@ -229,7 +228,7 @@ pub fn open(cx: &mut App) {
                     return;
                 }
                 let main = cx.global::<MainWindow>().0;
-                if !cx.windows().iter().any(|w| *w == main) {
+                if !cx.windows().contains(&main) {
                     cx.quit();
                 }
             })

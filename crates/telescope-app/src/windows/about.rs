@@ -1,4 +1,4 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::{Sizable as _, TitleBar};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Div, FontWeight, Global, IntoElement,

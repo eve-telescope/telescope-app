@@ -56,7 +56,7 @@ fn init_hotkey(cx: &mut App) {
             cx.background_executor().timer(HOTKEY_POLL).await;
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state() == HotKeyState::Pressed {
-                    let _ = cx.update(scan_clipboard);
+                    cx.update(scan_clipboard);
                 }
             }
         }
@@ -111,7 +111,7 @@ fn init_update_check(cx: &mut App) {
         loop {
             match runtime::spawn(check_for_update()).await {
                 Ok(Some(info)) => {
-                    let _ = cx.update(|cx| show_update(info, cx));
+                    cx.update(|cx| show_update(info, cx));
                     return;
                 }
                 Ok(None) => {}

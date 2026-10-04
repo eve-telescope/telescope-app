@@ -20,8 +20,6 @@ pub const CYAN_DIM: u32 = 0x0099bb;
 pub const ORANGE: u32 = 0xff9944;
 pub const GREEN: u32 = 0x44ddaa;
 pub const RED: u32 = 0xff5566;
-pub const WIN_CLOSE: u32 = 0xc42b1c;
-pub const LOGO_TILE: u32 = 0x12151a;
 
 pub fn color(hex: u32) -> Hsla {
     rgb(hex).into()

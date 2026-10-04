@@ -86,10 +86,6 @@ impl IntelStore {
         cx.notify();
     }
 
-    pub fn state(&self) -> &IntelState {
-        &self.state
-    }
-
     pub fn is_authenticated(&self) -> bool {
         self.state.api_token.is_some()
     }
@@ -228,9 +224,9 @@ impl IntelStore {
         );
     }
 
-    pub fn logout(&mut self, cx: &mut Context<Self>) {
+    pub fn logout(&mut self, _cx: &mut Context<Self>) {
         let service = self.service.clone();
-        self.run(async move { Ok(service.logout().await) }, cx, |_, (), _| {});
+        runtime::spawn(async move { service.logout().await }).detach();
     }
 
     pub fn fetch_networks(&mut self, cx: &mut Context<Self>) {
@@ -283,13 +279,9 @@ impl IntelStore {
         );
     }
 
-    pub fn clear_selected_network(&mut self, cx: &mut Context<Self>) {
+    pub fn clear_selected_network(&mut self, _cx: &mut Context<Self>) {
         let service = self.service.clone();
-        self.run(
-            async move { Ok(service.clear_selected_network().await) },
-            cx,
-            |_, (), _| {},
-        );
+        runtime::spawn(async move { service.clear_selected_network().await }).detach();
     }
 
     pub fn create_network(&mut self, name: String, cx: &mut Context<Self>) {
@@ -310,13 +302,9 @@ impl IntelStore {
         );
     }
 
-    pub fn clear_entries(&mut self, cx: &mut Context<Self>) {
+    pub fn clear_entries(&mut self, _cx: &mut Context<Self>) {
         let service = self.service.clone();
-        self.run(
-            async move { Ok(service.clear_entries().await) },
-            cx,
-            |_, (), _| {},
-        );
+        runtime::spawn(async move { service.clear_entries().await }).detach();
     }
 
     pub fn lookup_intel(&mut self, ids: Vec<i64>, cx: &mut Context<Self>) {

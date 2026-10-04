@@ -52,8 +52,7 @@ impl ShareButton {
             let result = create.await;
             let (state, reset_after) = match result {
                 Ok(share) => {
-                    let _ =
-                        cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string(share.url)));
+                    cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string(share.url)));
                     (ShareState::Copied, Duration::from_secs(2))
                 }
                 Err(e) => {

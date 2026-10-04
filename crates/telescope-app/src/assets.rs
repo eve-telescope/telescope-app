@@ -13,7 +13,7 @@ icon_assets!(
     ]
 );
 
-const LOGO: &[u8] = include_bytes!("../assets/logo.svg");
+const LOGO: &[u8] = include_bytes!("../icons/icon.svg");
 
 pub struct AppAssets;
 

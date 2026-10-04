@@ -26,9 +26,7 @@ pub struct ScanStore {
     pilots: PilotAccumulator,
     loading: bool,
     progress: Option<LookupProgress>,
-    error: Option<String>,
     dscan: Option<DscanParseResult>,
-    dscan_text: String,
     dscan_loading: bool,
     dscan_error: Option<String>,
     lookup_task: Option<Task<()>>,
@@ -48,9 +46,7 @@ impl ScanStore {
             pilots: PilotAccumulator::new(),
             loading: false,
             progress: None,
-            error: None,
             dscan: None,
-            dscan_text: String::new(),
             dscan_loading: false,
             dscan_error: None,
             lookup_task: None,
@@ -111,16 +107,8 @@ impl ScanStore {
         self.progress
     }
 
-    pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
-    }
-
     pub fn dscan(&self) -> Option<&DscanParseResult> {
         self.dscan.as_ref()
-    }
-
-    pub fn dscan_text(&self) -> &str {
-        &self.dscan_text
     }
 
     pub fn dscan_loading(&self) -> bool {
@@ -156,9 +144,7 @@ impl ScanStore {
         self.pilots.clear();
         self.loading = false;
         self.progress = None;
-        self.error = None;
         self.dscan = None;
-        self.dscan_text.clear();
         self.dscan_loading = false;
         self.dscan_error = None;
         self.filters
@@ -181,7 +167,6 @@ impl ScanStore {
             .retain_where(|p| names.contains(&p.character.name.to_lowercase()));
         self.loading = true;
         self.progress = None;
-        self.error = None;
         self.intel.update(cx, |intel, cx| intel.clear_entries(cx));
         self.filters
             .update(cx, |filters, cx| filters.update(cx, |f| f.clear()));
@@ -224,10 +209,7 @@ impl ScanStore {
                         this.intel
                             .update(cx, |intel, cx| intel.lookup_intel(ids, cx));
                     }
-                    Err(e) => {
-                        error!("Failed to lookup pilots: {}", e);
-                        this.error = Some(e);
-                    }
+                    Err(e) => error!("Failed to lookup pilots: {}", e),
                 }
                 this.loading = false;
                 this.progress = None;
@@ -253,7 +235,6 @@ impl ScanStore {
     }
 
     fn parse_dscan(&mut self, text: String, cx: &mut Context<Self>) {
-        self.dscan_text = text.clone();
         self.dscan_loading = true;
         self.dscan_error = None;
         cx.notify();
