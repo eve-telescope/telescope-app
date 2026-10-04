@@ -29,6 +29,7 @@ use crate::views::grid::{Col, cell, span};
 use crate::views::local_panel::portrait;
 use crate::views::pilot_details::zkill_character_url;
 use crate::views::stats::kd_cell;
+use crate::views::tags::{OVERLAY, tag_strip};
 
 const ROW_HEIGHT: f32 = 33.;
 
@@ -392,21 +393,11 @@ impl OverlayView {
                             .child(pilot.character.name.clone()),
                     ),
             )
-            .child(
-                c(COLS[2])
-                    .flex_wrap()
-                    .gap_0p5()
-                    .children(tags.iter().map(|t| {
-                        div()
-                            .text_size(px(7.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme::hex_or(
-                                t.color.as_deref().unwrap_or(DEFAULT_TAG_TEXT_COLOR),
-                                TEXT_2,
-                            ))
-                            .child(t.text.clone())
-                    })),
-            )
+            .child(c(COLS[2]).child(tag_strip(
+                ("overlay-tags", id as u64).into(),
+                &tags,
+                OVERLAY,
+            )))
             .child(c(COLS[3]).child(ticker(
                 &pilot.character.corporation_ticker,
                 &pilot.character.corporation_name,

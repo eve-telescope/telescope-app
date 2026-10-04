@@ -17,7 +17,7 @@ use telescope_core::view::pilot_counts::tag_counts;
 use telescope_core::view::pilot_filters::UNKNOWN_CORPORATION;
 use telescope_core::view::pilot_sort::{SortDirection, SortKey, SortState, sort_pilots};
 use telescope_core::view::pilot_tags::{
-    DEFAULT_TAG_COLOR, DEFAULT_TAG_TEXT_COLOR, PilotTag, pilot_tags, pilot_tags_with_index,
+    DEFAULT_TAG_COLOR, DEFAULT_TAG_TEXT_COLOR, pilot_tags, pilot_tags_with_index,
 };
 
 use crate::state::Stores;
@@ -29,6 +29,7 @@ use crate::views::grid::{Col, cell, span};
 use crate::views::intel_menu::{annotation_notes_button, pilot_context_menu};
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
 use crate::views::stats::{isk_cell, kd_cell};
+use crate::views::tags::{TABLE, tag_strip};
 
 const ROW_HEIGHT: f32 = 40.;
 const ERROR_HEIGHT: f32 = 24.;
@@ -282,15 +283,10 @@ impl LocalPanel {
                 ),
             )
             .child(
-                row_cell(COLS[2]).child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .gap_1()
-                        .children(tags.iter().map(tag_badge))
-                        .children(notes),
-                ),
+                row_cell(COLS[2])
+                    .gap_1()
+                    .child(tag_strip(("row-tags", id as u64).into(), &tags, TABLE))
+                    .children(notes),
             )
             .child(
                 row_cell(COLS[3]).child(affiliation(
@@ -846,19 +842,6 @@ pub fn threat_badge(level: &str) -> impl IntoElement {
         .text_size(px(10.))
         .font_weight(FontWeight::BOLD)
         .child(text)
-}
-
-pub fn tag_badge(tag: &PilotTag) -> impl IntoElement {
-    let color = tag.color.as_deref().unwrap_or(DEFAULT_TAG_COLOR);
-    let text = tag.color.as_deref().unwrap_or(DEFAULT_TAG_TEXT_COLOR);
-    div()
-        .px_1p5()
-        .rounded_sm()
-        .text_size(px(10.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .bg(theme::hex_tint(color, 0x22, TEXT_3))
-        .text_color(theme::hex_or(text, TEXT_2))
-        .child(tag.text.clone())
 }
 
 fn affiliation(logo: Option<String>, name: Option<String>) -> impl IntoElement {

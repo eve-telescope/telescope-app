@@ -11,4 +11,5 @@ pub mod settings_panel;
 pub mod share_button;
 pub mod shortcut_editor;
 pub mod stats;
+pub mod tags;
 pub mod threat_summary;
