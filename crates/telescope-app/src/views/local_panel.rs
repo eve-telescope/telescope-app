@@ -5,10 +5,10 @@ use std::time::Instant;
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    AnyElement, Context, Div, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement as _, Pixels, Point, Render,
-    SharedString, Size, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
-    anchored, deferred, div, img, px, size,
+    SharedString, Size, Stateful, StatefulInteractiveElement as _, Styled as _, Subscription,
+    Window, anchored, deferred, div, img, px, size,
 };
 use telescope_core::models::PilotIntel;
 use telescope_core::view::format::{
@@ -23,7 +23,7 @@ use telescope_core::view::pilot_tags::{
 
 use crate::state::Stores;
 use crate::theme::{
-    self, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, RED, TEXT_1, TEXT_2, TEXT_3,
+    self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, TEXT_1, TEXT_2, TEXT_3,
 };
 use crate::ui::{Icon, IconName, mono, section_title};
 use crate::views::grid::{Col, cell};
@@ -35,7 +35,6 @@ use crate::views::stats::danger_cell;
 use crate::views::tags::{TABLE, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 40.;
-const ERROR_HEIGHT: f32 = 24.;
 
 const COLS: [Col; 7] = [
     Col::Fixed(64.),
@@ -52,6 +51,8 @@ pub struct LocalPanel {
     expanded: Option<u64>,
     expanded_at: Option<Instant>,
     rows: Vec<PilotIntel>,
+    /// Where each row starts in the list, for sliding rows that move.
+    row_tops: Vec<f32>,
     arrived: Arrivals,
     scored: Arrivals,
     row_sizes: Rc<Vec<Size<Pixels>>>,
@@ -87,6 +88,7 @@ impl LocalPanel {
             expanded: None,
             expanded_at: None,
             rows: Vec::new(),
+            row_tops: Vec::new(),
             arrived: Arrivals::default(),
             scored: Arrivals::default(),
             row_sizes: Rc::new(Vec::new()),
@@ -117,11 +119,16 @@ impl LocalPanel {
             .cloned()
             .collect();
         sort_pilots(&mut rows, self.sort.key, self.sort.direction);
-        self.row_sizes = Rc::new(
-            rows.iter()
-                .map(|p| size(px(1.), px(self.row_height(p))))
-                .collect(),
-        );
+        let heights: Vec<f32> = rows.iter().map(|p| self.row_height(p)).collect();
+        self.row_tops = heights
+            .iter()
+            .scan(0., |top, height| {
+                let this = *top;
+                *top += height;
+                Some(this)
+            })
+            .collect();
+        self.row_sizes = Rc::new(heights.iter().map(|h| size(px(1.), px(*h))).collect());
         self.rows = rows;
         cx.notify();
     }
@@ -130,9 +137,6 @@ impl LocalPanel {
         let mut height = ROW_HEIGHT;
         if self.expanded == Some(pilot.row_key()) && pilot.zkill.is_some() {
             height += DETAILS_HEIGHT;
-        }
-        if pilot.error.is_some() {
-            height += ERROR_HEIGHT;
         }
         height
     }
@@ -246,7 +250,8 @@ impl LocalPanel {
     fn render_row(
         &self,
         pilot: &PilotIntel,
-        _window: &mut Window,
+        top: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = pilot.character.id;
@@ -261,118 +266,123 @@ impl LocalPanel {
         let dash = || div().text_color(theme::color(TEXT_3)).child("—");
         let z = pilot.zkill.as_ref();
 
-        let main_row = div()
-            .id(("pilot-row", key))
-            .flex()
-            .h(px(ROW_HEIGHT - 1.))
-            .bg(theme::color(BG_1))
-            .hover(|s| s.bg(theme::color(BG_HOVER)))
-            .border_l(px(3.))
-            .border_color(threat)
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_expand(key, cx)))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    // Unresolved names have no character to annotate.
-                    if id == 0 {
-                        return;
-                    }
-                    this.menu = Some((key, event.position));
-                    window.focus(&this.menu_focus, cx);
-                    cx.notify();
-                }),
-            )
-            .child(row_cell(COLS[0]).child(threat_badge(&pilot.threat_level)))
-            .child(
-                row_cell(COLS[1]).child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .min_w_0()
-                        .child(portrait(id))
-                        .child(
-                            div()
-                                .truncate()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(pilot.character.name.clone()),
-                        ),
-                ),
-            )
-            .child(
-                row_cell(COLS[2])
-                    .gap_1()
-                    .child(tag_strip("row-tag", key, &tags, TABLE))
-                    .children(notes),
-            )
-            .child(
-                row_cell(COLS[3]).child(affiliation(
-                    pilot
-                        .character
-                        .corporation_id
-                        .map(|id| corporation_logo_url(id, 64)),
-                    pilot.character.corporation_name.clone(),
-                )),
-            )
-            .child(
-                row_cell(COLS[4]).child(affiliation(
-                    pilot
-                        .character
-                        .alliance_id
-                        .map(|id| alliance_logo_url(id, 64)),
-                    pilot.character.alliance_name.clone(),
-                )),
-            )
-            .child(
-                row_cell(COLS[5]).child(match z.filter(|z| !z.top_ships.is_empty()) {
-                    Some(z) => div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .children(z.top_ships.iter().take(5).map(|ship| {
-                            let tooltip: SharedString =
-                                format!("{} ({})", ship.ship_name, ship.kills).into();
-                            div()
-                                .id(gpui_kit::ElementId::NamedInteger(
-                                    format!("row-ship-{}", ship.ship_type_id).into(),
-                                    key,
-                                ))
-                                .size(px(26.))
-                                .rounded_sm()
-                                .overflow_hidden()
-                                .bg(theme::color(BG_3))
-                                .tooltip(move |window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new(tooltip.clone())
-                                        .build(window, cx)
-                                })
-                                .child(img(ship_icon_url(ship.ship_type_id, 64)).size_full())
-                        }))
-                        .when(z.top_ships.len() > 5, |el| {
-                            el.child(
+        let main_row = if pilot.is_unresolved() {
+            unresolved_row(pilot)
+        } else {
+            div()
+                .id(("pilot-row", key))
+                .flex()
+                .h(px(ROW_HEIGHT - 1.))
+                .bg(theme::color(BG_1))
+                .hover(|s| s.bg(theme::color(BG_HOVER)))
+                .border_l(px(3.))
+                .border_color(threat)
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_expand(key, cx)))
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        // Unresolved names have no character to annotate.
+                        if id == 0 {
+                            return;
+                        }
+                        this.menu = Some((key, event.position));
+                        window.focus(&this.menu_focus, cx);
+                        cx.notify();
+                    }),
+                )
+                .child(row_cell(COLS[0]).child(threat_badge(&pilot.threat_level)))
+                .child(
+                    row_cell(COLS[1]).child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .min_w_0()
+                            .child(portrait(id))
+                            .child(
                                 div()
-                                    .ml_0p5()
-                                    .text_size(px(10.))
-                                    .text_color(theme::color(TEXT_3))
-                                    .child(format!("+{}", z.top_ships.len() - 5)),
-                            )
-                        })
-                        .into_any_element(),
-                    None => dash().into_any_element(),
-                }),
-            )
-            .child(row_cell(COLS[6]).child(danger_cell(
-                ("row-danger", key).into(),
-                pilot,
-                80.,
-                px(14.),
-                self.scored.is_fresh(key),
-            )));
+                                    .truncate()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(pilot.character.name.clone()),
+                            ),
+                    ),
+                )
+                .child(
+                    row_cell(COLS[2])
+                        .gap_1()
+                        .child(tag_strip("row-tag", key, &tags, TABLE))
+                        .children(notes),
+                )
+                .child(
+                    row_cell(COLS[3]).child(affiliation(
+                        pilot
+                            .character
+                            .corporation_id
+                            .map(|id| corporation_logo_url(id, 64)),
+                        pilot.character.corporation_name.clone(),
+                    )),
+                )
+                .child(
+                    row_cell(COLS[4]).child(affiliation(
+                        pilot
+                            .character
+                            .alliance_id
+                            .map(|id| alliance_logo_url(id, 64)),
+                        pilot.character.alliance_name.clone(),
+                    )),
+                )
+                .child(
+                    row_cell(COLS[5]).child(match z.filter(|z| !z.top_ships.is_empty()) {
+                        Some(z) => div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .children(z.top_ships.iter().take(5).map(|ship| {
+                                let tooltip: SharedString =
+                                    format!("{} ({})", ship.ship_name, ship.kills).into();
+                                div()
+                                    .id(gpui_kit::ElementId::NamedInteger(
+                                        format!("row-ship-{}", ship.ship_type_id).into(),
+                                        key,
+                                    ))
+                                    .size(px(26.))
+                                    .rounded_sm()
+                                    .overflow_hidden()
+                                    .bg(theme::color(BG_3))
+                                    .tooltip(move |window, cx| {
+                                        gpui_kit::component::tooltip::Tooltip::new(tooltip.clone())
+                                            .build(window, cx)
+                                    })
+                                    .child(img(ship_icon_url(ship.ship_type_id, 64)).size_full())
+                            }))
+                            .when(z.top_ships.len() > 5, |el| {
+                                el.child(
+                                    div()
+                                        .ml_0p5()
+                                        .text_size(px(10.))
+                                        .text_color(theme::color(TEXT_3))
+                                        .child(format!("+{}", z.top_ships.len() - 5)),
+                                )
+                            })
+                            .into_any_element(),
+                        None => dash().into_any_element(),
+                    }),
+                )
+                .child(row_cell(COLS[6]).child(danger_cell(
+                    ("row-danger", key).into(),
+                    pilot,
+                    80.,
+                    px(14.),
+                    self.scored.is_fresh(key),
+                )))
+        };
 
+        let height = self.row_height(pilot);
         let row = div()
             .w_full()
-            .h(px(self.row_height(pilot)))
+            .h(px(height))
             .flex()
             .flex_col()
             .border_b_1()
@@ -384,22 +394,18 @@ impl LocalPanel {
                     div().child(pilot_details(pilot, z, cx)),
                     self.expanded_at.is_some_and(motion::is_recent),
                 ))
-            })
-            .when_some(pilot.error.clone(), |el, error| {
-                el.child(
-                    div()
-                        .h(px(ERROR_HEIGHT))
-                        .flex()
-                        .items_center()
-                        .px_4()
-                        .pl(px(56.))
-                        .text_xs()
-                        .text_color(theme::color(RED))
-                        .bg(theme::tint(RED, 0x0d))
-                        .child(error),
-                )
             });
-        motion::enter(("row-in", key), row, self.arrived.is_fresh(key))
+        let offset = motion::slide(("row-y", key), top, window, cx);
+        div()
+            .h(px(height))
+            .relative()
+            .top(offset)
+            .child(motion::enter(
+                ("row-in", key),
+                row,
+                self.arrived.is_fresh(key),
+            ))
+            .into_any_element()
     }
 
     fn render_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -418,9 +424,8 @@ impl LocalPanel {
                     |this, range, window, cx| {
                         // Borrow the rows out instead of cloning them every frame.
                         let rows = std::mem::take(&mut this.rows);
-                        let elements = rows[range]
-                            .iter()
-                            .map(|pilot| this.render_row(pilot, window, cx))
+                        let elements = range
+                            .map(|ix| this.render_row(&rows[ix], this.row_tops[ix], window, cx))
                             .collect();
                         this.rows = rows;
                         elements
@@ -823,6 +828,68 @@ fn empty_state() -> impl IntoElement {
                         .child("Paste names from local chat to begin"),
                 ),
         )
+}
+
+/// A muted row for a name the lookup could not resolve: no stats to show, so
+/// one line says why instead of a column of dashes.
+fn unresolved_row(pilot: &PilotIntel) -> Stateful<Div> {
+    let id = pilot.character.id;
+    let (icon, reason): (IconName, SharedString) = if id == 0 {
+        (IconName::UserX, "Unknown character".into())
+    } else {
+        (IconName::CloudOff, "Lookup failed".into())
+    };
+    let detail: SharedString = pilot.error.clone().unwrap_or_default().into();
+    div()
+        .id(("pilot-row", pilot.row_key()))
+        .flex()
+        .items_center()
+        .h(px(ROW_HEIGHT - 1.))
+        .bg(theme::color(BG_0))
+        .border_l(px(3.))
+        .border_color(theme::color(BORDER))
+        .text_color(theme::color(TEXT_3))
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(detail.clone()).build(window, cx)
+        })
+        .child(
+            cell(COLS[0]).px_2().child(
+                div()
+                    .px_1p5()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(theme::color(BORDER))
+                    .text_size(px(10.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("N/A"),
+            ),
+        )
+        .child(
+            cell(COLS[1]).px_2().child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .min_w_0()
+                    .child(div().opacity(0.6).child(portrait(id)))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_sm()
+                            .text_color(theme::color(TEXT_2))
+                            .child(pilot.character.name.clone()),
+                    ),
+            ),
+        )
+        .child(
+            cell(COLS[2])
+                .px_2()
+                .gap_2()
+                .text_xs()
+                .child(Icon::new(icon).size_3p5().flex_none())
+                .child(div().truncate().child(reason)),
+        )
+        .children(COLS[3..].iter().map(|col| cell(*col)))
 }
 
 pub fn portrait(character_id: i64) -> AnyElement {

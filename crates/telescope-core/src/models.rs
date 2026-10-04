@@ -88,6 +88,12 @@ pub struct PilotIntel {
 }
 
 impl PilotIntel {
+    /// The lookup failed, either because no character has this name or
+    /// because ESI could not be reached.
+    pub fn is_unresolved(&self) -> bool {
+        self.error.is_some()
+    }
+
     /// Stable identity for a result row: the character id, or for names ESI
     /// could not resolve (id 0) a hash of the lowercased name with the top
     /// bit set, so it can't collide with a real id.

@@ -9,7 +9,7 @@ icon_assets!(
         Anchor, Bomb, Boxes, Circle, CircleDot, Crosshair, Download, Flag, HeartPulse, Keyboard,
         Layers, Lock, LockOpen, Pickaxe, ShieldHalf, Swords, Truck,
         LogOut, Pencil, Radar, RotateCcw, Rocket, Satellite, Share2, Shield, Ship, Square,
-        StickyNote, Trash, Users, X, Zap
+        StickyNote, Trash, Users, UserX, CloudOff, X, Zap
     ]
 );
 

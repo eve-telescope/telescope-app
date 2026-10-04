@@ -340,7 +340,13 @@ impl OverlayView {
             .child(c(COLS[6]).child(self.header(SortKey::Danger, "DANGER", true, cx)))
     }
 
-    fn render_row(&self, pilot: &PilotIntel, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn render_row(
+        &self,
+        pilot: &PilotIntel,
+        top: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
         let id = pilot.character.id;
         let key = pilot.row_key();
         let index = Stores::get(cx).intel.read(cx).annotation_index();
@@ -373,6 +379,7 @@ impl OverlayView {
             .px_3()
             .border_b_1()
             .border_color(theme::tint(BORDER, 0x33))
+            .when(pilot.is_unresolved(), |el| el.opacity(0.4))
             .cursor_pointer()
             .hover(|s| s.bg(theme::tint(BG_HOVER, 0x80)))
             .on_click(move |_, _, cx| {
@@ -462,7 +469,17 @@ impl OverlayView {
                 px(11.),
                 self.scored.is_fresh(key),
             )));
-        motion::enter(("overlay-row-in", key), row, self.arrived.is_fresh(key))
+        let offset = motion::slide(("overlay-row-y", key), top, window, cx);
+        div()
+            .h(px(ROW_HEIGHT))
+            .relative()
+            .top(offset)
+            .child(motion::enter(
+                ("overlay-row-in", key),
+                row,
+                self.arrived.is_fresh(key),
+            ))
+            .into_any_element()
     }
 }
 
@@ -486,10 +503,14 @@ impl Render for OverlayView {
                             cx.entity(),
                             "overlay-rows",
                             self.row_sizes.clone(),
-                            |this, range, _, cx| {
+                            |this, range, window, cx| {
                                 let rows = std::mem::take(&mut this.rows);
-                                let elements =
-                                    rows[range].iter().map(|p| this.render_row(p, cx)).collect();
+                                let elements = range
+                                    .map(|ix| {
+                                        let top = ix as f32 * ROW_HEIGHT;
+                                        this.render_row(&rows[ix], top, window, cx)
+                                    })
+                                    .collect();
                                 this.rows = rows;
                                 elements
                             },

@@ -3,8 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use gpui_kit::base::{Spring, spring};
 use gpui_kit::{
-    Animation, AnimationExt as _, AnyElement, ElementId, IntoElement, Styled, ease_out_quint, px,
+    Animation, AnimationExt as _, AnyElement, App, ElementId, IntoElement, Pixels, Styled, Window,
+    ease_out_quint, px,
 };
 
 pub const ENTER: Duration = Duration::from_millis(260);
@@ -76,4 +78,14 @@ where
             animator(el, if fresh { p } else { 1. })
         })
         .into_any_element()
+}
+
+const MOVE: Spring = Spring::new(Duration::from_millis(380));
+
+/// How far a list row is drawn from `top`, its place in the list, while it
+/// glides there from where it was last frame. Rows that move because others
+/// were inserted or re-sorted slide instead of jumping.
+pub fn slide(id: impl Into<ElementId>, top: f32, window: &mut Window, cx: &mut App) -> Pixels {
+    let id: ElementId = id.into();
+    spring(id, px(top), MOVE, window, cx) - px(top)
 }

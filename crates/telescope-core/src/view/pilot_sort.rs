@@ -206,6 +206,7 @@ pub fn compare_pilots(a: &PilotIntel, b: &PilotIntel, key: SortKey) -> Ordering 
 }
 
 /// Stable in-place sort; ties keep arrival order in both directions.
+/// Pilots that could not be looked up always go last.
 /// Works on owned pilots or on references (e.g. a filtered `Vec<&PilotIntel>`).
 pub fn sort_pilots<P: Borrow<PilotIntel>>(
     pilots: &mut [P],
@@ -213,11 +214,13 @@ pub fn sort_pilots<P: Borrow<PilotIntel>>(
     direction: SortDirection,
 ) {
     pilots.sort_by(|a, b| {
-        let ord = compare_pilots(a.borrow(), b.borrow(), key);
-        match direction {
+        let (a, b) = (a.borrow(), b.borrow());
+        let ord = compare_pilots(a, b, key);
+        let ord = match direction {
             SortDirection::Asc => ord,
             SortDirection::Desc => ord.reverse(),
-        }
+        };
+        a.is_unresolved().cmp(&b.is_unresolved()).then(ord)
     });
 }
 
@@ -477,5 +480,16 @@ mod tests {
         assert_eq!(names(&pilots), vec!["Top", "Upper", "Mid", "None"]);
         sort_pilots(&mut pilots, SortKey::Danger, SortDirection::Asc);
         assert_eq!(names(&pilots), vec!["None", "Mid", "Upper", "Top"]);
+    }
+
+    #[test]
+    fn unresolved_pilots_sort_last_in_both_directions() {
+        let mut missing = named("Aaron");
+        missing.error = Some("Character not found".into());
+        for direction in [SortDirection::Asc, SortDirection::Desc] {
+            let mut pilots = vec![missing.clone(), named("Zed"), named("Bob")];
+            sort_pilots(&mut pilots, SortKey::Pilot, direction);
+            assert_eq!(pilots.last().unwrap().character.name, "Aaron");
+        }
     }
 }
