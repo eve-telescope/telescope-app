@@ -4,12 +4,13 @@ use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Task};
 use log::{error, warn};
 use telescope_core::domain::lookup::LookupProgress;
 use telescope_core::lookup::{PilotBatch, lookup_pilots};
-use telescope_core::models::{DscanParseResult, PilotIntel};
+use telescope_core::models::{DscanParseResult, PilotIntel, SdeStatus};
 use telescope_core::view::pilot_accumulator::PilotAccumulator;
 use telescope_core::view::scan_input::{ScanInputKind, detect_scan_input_kind, split_pilot_names};
 
 use crate::runtime;
 use crate::services::Services;
+use crate::state::filters::FilterStore;
 use crate::state::intel::IntelStore;
 
 pub enum ScanEvent {
@@ -21,6 +22,7 @@ pub enum ScanEvent {
 /// overlay.
 pub struct ScanStore {
     intel: Entity<IntelStore>,
+    filters: Entity<FilterStore>,
     pilots: PilotAccumulator,
     loading: bool,
     progress: Option<LookupProgress>,
@@ -31,14 +33,18 @@ pub struct ScanStore {
     dscan_error: Option<String>,
     lookup_task: Option<Task<()>>,
     dscan_task: Option<Task<()>>,
+    sde_status: Option<SdeStatus>,
+    sde_syncing: bool,
+    sde_task: Option<Task<()>>,
 }
 
 impl EventEmitter<ScanEvent> for ScanStore {}
 
 impl ScanStore {
-    pub fn new(intel: Entity<IntelStore>) -> Self {
+    pub fn new(intel: Entity<IntelStore>, filters: Entity<FilterStore>) -> Self {
         Self {
             intel,
+            filters,
             pilots: PilotAccumulator::new(),
             loading: false,
             progress: None,
@@ -49,7 +55,48 @@ impl ScanStore {
             dscan_error: None,
             lookup_task: None,
             dscan_task: None,
+            sde_status: None,
+            sde_syncing: false,
+            sde_task: None,
         }
+    }
+
+    pub fn sde_status(&self) -> Option<&SdeStatus> {
+        self.sde_status.as_ref()
+    }
+
+    pub fn sde_syncing(&self) -> bool {
+        self.sde_syncing
+    }
+
+    /// Downloads or refreshes the SDE type index used to classify d-scans.
+    pub fn ensure_sde(&mut self, cx: &mut Context<Self>) {
+        if self.sde_syncing {
+            return;
+        }
+        self.sde_syncing = true;
+        cx.notify();
+        let services = Services::get(cx);
+        let sde = services.sde.clone();
+        let dir = services.paths.data.clone();
+        let ensure =
+            runtime::spawn(async move { telescope_core::sde::ensure_sde_index(&dir, &sde).await });
+        self.sde_task = Some(cx.spawn(async move |this, cx| {
+            let result = ensure.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(status) => this.sde_status = Some(status),
+                    Err(e) => {
+                        warn!("SDE index update failed: {}", e);
+                        if let Some(status) = &mut this.sde_status {
+                            status.last_error = Some(e);
+                        }
+                    }
+                }
+                this.sde_syncing = false;
+                cx.notify();
+            });
+        }));
     }
 
     pub fn pilots(&self) -> &[PilotIntel] {
@@ -114,6 +161,8 @@ impl ScanStore {
         self.dscan_text.clear();
         self.dscan_loading = false;
         self.dscan_error = None;
+        self.filters
+            .update(cx, |filters, cx| filters.update(cx, |f| f.clear()));
         cx.notify();
     }
 
@@ -134,6 +183,8 @@ impl ScanStore {
         self.progress = None;
         self.error = None;
         self.intel.update(cx, |intel, cx| intel.clear_entries(cx));
+        self.filters
+            .update(cx, |filters, cx| filters.update(cx, |f| f.clear()));
         cx.notify();
 
         let cache = Services::get(cx).cache.clone();
@@ -228,6 +279,14 @@ impl ScanStore {
     }
 }
 
-pub fn init(intel: Entity<IntelStore>, cx: &mut App) -> Entity<ScanStore> {
-    cx.new(|_| ScanStore::new(intel))
+pub fn init(
+    intel: Entity<IntelStore>,
+    filters: Entity<FilterStore>,
+    cx: &mut App,
+) -> Entity<ScanStore> {
+    cx.new(|cx| {
+        let mut store = ScanStore::new(intel, filters);
+        store.ensure_sde(cx);
+        store
+    })
 }

@@ -41,6 +41,7 @@ impl InputPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let text = cx
             .new(|cx| TextareaState::new(window, cx).placeholder("Paste local or D-scan text..."));
+        text.update(cx, |state, cx| state.focus(window, cx));
         let stores = Stores::get(cx);
         let subscriptions = vec![
             cx.subscribe_in(&text, window, |this, _, event, _, cx| match event {

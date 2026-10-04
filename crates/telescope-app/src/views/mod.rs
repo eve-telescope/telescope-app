@@ -1,7 +1,12 @@
+pub mod annotation_form;
 pub mod dscan_panel;
+pub mod entity_search;
+pub mod grid;
 pub mod input_panel;
+pub mod intel_menu;
 pub mod local_panel;
 pub mod network_manager;
+pub mod pilot_details;
 pub mod settings_panel;
 pub mod share_button;
 pub mod threat_summary;
