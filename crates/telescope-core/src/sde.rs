@@ -18,7 +18,7 @@ use zip::ZipArchive;
 
 use crate::domain::dscan::SdeIndex;
 use crate::domain::sde_lifecycle::{SdeEffect, SdeEvent, SdePhase, step};
-use crate::models::{ScanTypeIndexEntry, SdeStatus};
+use crate::models::{DscanParseResult, ScanTypeIndexEntry, SdeStatus};
 
 const SDE_URL: &str =
     "https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip";
@@ -76,6 +76,22 @@ impl SdeService {
     /// (call after an SDE update rewrites the cache file).
     pub async fn invalidate(&self) {
         *self.index.write().await = None;
+    }
+
+    pub async fn parse_dscan(
+        &self,
+        app_dir: &Path,
+        text: String,
+    ) -> Result<DscanParseResult, String> {
+        let index = self
+            .index(app_dir)
+            .await?
+            .ok_or_else(|| "SDE index is not ready yet".to_string())?;
+
+        // Large pastes are pure CPU work; keep them off the async runtime.
+        tokio::task::spawn_blocking(move || crate::domain::dscan::parse_dscan_text(&index, &text))
+            .await
+            .map_err(|err| err.to_string())
     }
 }
 

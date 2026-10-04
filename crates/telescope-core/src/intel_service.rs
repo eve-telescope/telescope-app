@@ -166,6 +166,12 @@ impl IntelService {
         self.apply(IntelAction::ClearSelected, false).await;
     }
 
+    /// Drops looked-up entries before a new scan so stale annotations don't
+    /// show against the new pilots.
+    pub async fn clear_entries(&self) {
+        self.apply(IntelAction::SetEntries(Vec::new()), false).await;
+    }
+
     pub async fn lookup_intel(&self, entity_ids: &[i64]) -> Result<(), String> {
         if entity_ids.is_empty() {
             return Ok(());
