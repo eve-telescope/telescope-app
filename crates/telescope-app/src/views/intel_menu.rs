@@ -7,8 +7,8 @@ use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Div, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    Stateful, Styled as _, Window, div, px,
+    AnyElement, App, Div, FontWeight, IntoElement, ParentElement as _, Stateful, Styled as _,
+    Window, div, px,
 };
 use telescope_core::models::PilotIntel;
 use telescope_core::view::annotations::{

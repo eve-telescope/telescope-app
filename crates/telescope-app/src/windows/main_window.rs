@@ -1,4 +1,5 @@
-use gpui_kit::component::TitleBar;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{Selectable as _, Sizable as _, TitleBar};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
@@ -92,52 +93,34 @@ impl MainView {
             .gap_1()
             .children(Tab::ALL.map(|tab| {
                 let active = self.tab == tab;
-                div()
-                    .id(SharedString::from(tab.label()))
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
+                Button::new(SharedString::from(tab.label()))
+                    .ghost()
+                    .xsmall()
+                    .label(tab.label())
+                    .selected(active)
                     .text_size(px(10.))
-                    .font_weight(gpui_kit::FontWeight::MEDIUM)
-                    .cursor_pointer()
-                    .map(|el| {
-                        if active {
-                            el.bg(theme::color(BG_3)).text_color(theme::color(TEXT_1))
-                        } else {
-                            el.text_color(theme::color(TEXT_3)).hover(|s| {
-                                s.bg(theme::color(BG_HOVER))
-                                    .text_color(theme::color(TEXT_1))
-                            })
-                        }
-                    })
-                    .child(tab.label())
+                    .text_color(theme::color(if active { TEXT_1 } else { TEXT_3 }))
+                    .when(active, |el| el.bg(theme::color(BG_3)))
                     .on_click(cx.listener(move |this, _, _, cx| this.set_tab(tab, cx)))
             }));
 
-        let overlay_toggle = div()
-            .id("overlay-toggle")
-            .flex()
-            .items_center()
-            .gap_1p5()
-            .px_2()
-            .py_1()
+        let overlay_toggle = Button::new("overlay-toggle")
+            .ghost()
+            .xsmall()
             .mr_2()
-            .rounded_sm()
+            .icon(Icon::new(IconName::Layers))
+            .label("Overlay")
+            .tooltip("Toggle overlay window")
+            .selected(overlay_open)
             .text_size(px(10.))
-            .cursor_pointer()
             .map(|el| {
                 if overlay_open {
                     el.bg(theme::tint(CYAN, 0x33))
                         .text_color(theme::color(CYAN))
                 } else {
-                    el.text_color(theme::color(TEXT_3)).hover(|s| {
-                        s.bg(theme::color(BG_HOVER))
-                            .text_color(theme::color(TEXT_1))
-                    })
+                    el.text_color(theme::color(TEXT_3))
                 }
             })
-            .child(Icon::new(IconName::Layers).size_3p5())
-            .child("Overlay")
             .on_click(|_, _, cx| overlay::toggle(cx));
 
         TitleBar::new()
