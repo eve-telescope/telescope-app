@@ -83,9 +83,9 @@ pub struct DangerPart {
     pub value: f64,
 }
 
-/// A 0..=100 rating of how dangerous a pilot is right now, combining
-/// recent activity, effectiveness, experience, small-gang lethality, the
-/// danger of their targets and the hulls they fly.
+/// A 0..=100 rating of how dangerous a pilot is, led by experience and
+/// small-gang lethality, then recent activity, effectiveness, the hulls they
+/// fly and the danger of their targets.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DangerScore {
     pub total: u8,
@@ -156,34 +156,34 @@ pub fn danger_score(stats: &ZkillStats) -> Option<DangerScore> {
 
     let parts = vec![
         DangerPart {
-            label: "Recent activity",
-            weight: 0.30,
-            value: activity,
-        },
-        DangerPart {
-            label: "Effectiveness",
-            weight: 0.20,
-            value: effectiveness,
-        },
-        DangerPart {
             label: "Experience",
-            weight: 0.15,
+            weight: 0.30,
             value: experience,
         },
         DangerPart {
             label: "Small-gang lethality",
-            weight: 0.15,
+            weight: 0.28,
             value: gang,
         },
         DangerPart {
-            label: "Target danger",
-            weight: 0.10,
-            value: targets,
+            label: "Recent activity",
+            weight: 0.15,
+            value: activity,
+        },
+        DangerPart {
+            label: "Effectiveness",
+            weight: 0.12,
+            value: effectiveness,
         },
         DangerPart {
             label: "Dangerous hulls",
-            weight: 0.10,
+            weight: 0.08,
             value: roles,
+        },
+        DangerPart {
+            label: "Target danger",
+            weight: 0.07,
+            value: targets,
         },
     ];
     let total = parts.iter().map(|p| p.weight * p.value).sum::<f64>() * 100.0;
@@ -372,7 +372,7 @@ mod tests {
             ..veteran()
         };
         let active = danger_score(&veteran()).unwrap().total;
-        assert!(danger_score(&idle).unwrap().total + 25 <= active);
+        assert!(danger_score(&idle).unwrap().total + 10 <= active);
     }
 
     #[test]
