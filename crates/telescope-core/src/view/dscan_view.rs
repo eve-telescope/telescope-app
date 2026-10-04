@@ -244,6 +244,30 @@ impl Hull {
         }
     }
 
+    /// Larger hulls rank higher: titans first, capsules last.
+    pub fn size_rank(self) -> u8 {
+        match self {
+            Hull::Titan => 18,
+            Hull::Supercarrier => 17,
+            Hull::Dreadnought => 16,
+            Hull::Carrier => 15,
+            Hull::ForceAuxiliary => 14,
+            Hull::Freighter => 13,
+            Hull::IndustrialCommand => 12,
+            Hull::Battleship => 11,
+            Hull::Battlecruiser => 10,
+            Hull::Cruiser => 9,
+            Hull::MiningBarge => 8,
+            Hull::Industrial => 7,
+            Hull::Destroyer => 6,
+            Hull::Frigate => 5,
+            Hull::MiningFrigate => 4,
+            Hull::Rookie => 3,
+            Hull::Shuttle => 2,
+            Hull::Capsule => 1,
+        }
+    }
+
     /// The hull for an SDE ship group name, `None` for groups the client
     /// draws with a non-class bracket.
     pub fn for_group(group_name: &str) -> Option<Hull> {
@@ -286,6 +310,30 @@ impl Hull {
             _ => return None,
         })
     }
+}
+
+fn size_rank_of(group_name: &str) -> u8 {
+    Hull::for_group(group_name).map_or(0, Hull::size_rank)
+}
+
+/// Largest hull first, then most numerous; groups without a known hull last.
+pub fn sort_types_by_size(types: &mut [TypeBucket]) {
+    types.sort_by(|a, b| {
+        size_rank_of(&b.subtitle)
+            .cmp(&size_rank_of(&a.subtitle))
+            .then(b.count.cmp(&a.count))
+            .then_with(|| a.type_name.cmp(&b.type_name))
+    });
+}
+
+/// Largest hull first, then most numerous; groups without a known hull last.
+pub fn sort_classes_by_size(classes: &mut [ClassCount]) {
+    classes.sort_by(|a, b| {
+        size_rank_of(&b.name)
+            .cmp(&size_rank_of(&a.name))
+            .then(b.count.cmp(&a.count))
+            .then_with(|| a.name.cmp(&b.name))
+    });
 }
 
 #[cfg(test)]
@@ -449,5 +497,51 @@ mod tests {
         assert_eq!(Hull::for_group("Exhumer"), Some(Hull::MiningBarge));
         assert_eq!(Hull::for_group("Expedition Command Ship"), None);
         assert_eq!(Hull::for_group("Unknown class"), None);
+    }
+
+    #[test]
+    fn classes_sort_largest_hull_first() {
+        let class = |name: &str, count| ClassCount {
+            name: name.into(),
+            count,
+        };
+        let mut classes = vec![
+            class("Frigate", 20),
+            class("Unknown class", 50),
+            class("Titan", 1),
+            class("Interceptor", 3),
+            class("Logistics", 4),
+        ];
+        sort_classes_by_size(&mut classes);
+        let names: Vec<_> = classes.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Titan",
+                "Logistics",
+                "Frigate",
+                "Interceptor",
+                "Unknown class"
+            ]
+        );
+    }
+
+    #[test]
+    fn types_sort_by_hull_then_count() {
+        let bucket = |name: &str, group: &str, count| TypeBucket {
+            type_id: None,
+            type_name: name.into(),
+            subtitle: group.into(),
+            count,
+        };
+        let mut types = vec![
+            bucket("Rifter", "Frigate", 9),
+            bucket("Raven", "Battleship", 1),
+            bucket("Drake", "Combat Battlecruiser", 2),
+            bucket("Hurricane", "Combat Battlecruiser", 5),
+        ];
+        sort_types_by_size(&mut types);
+        let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
+        assert_eq!(names, ["Raven", "Hurricane", "Drake", "Rifter"]);
     }
 }

@@ -9,6 +9,7 @@ use gpui_kit::{
 use telescope_core::models::DscanEntry;
 use telescope_core::view::dscan_view::{
     ClassIcon, Hull, TypeBucket, bar_width, bucket_by_type, class_icon, count_by_class,
+    sort_classes_by_size, sort_types_by_size,
 };
 use telescope_core::view::format::ship_icon_url;
 
@@ -175,12 +176,14 @@ impl Render for DscanPanel {
             .filter(|e| !e.is_ship)
             .cloned()
             .collect();
-        let types = bucket_by_type(&ships, |e| {
+        let mut types = bucket_by_type(&ships, |e| {
             e.group_name
                 .clone()
                 .unwrap_or_else(|| "Unknown class".into())
         });
-        let classes = count_by_class(&ships);
+        let mut classes = count_by_class(&ships);
+        sort_types_by_size(&mut types);
+        sort_classes_by_size(&mut classes);
         let other_types = bucket_by_type(&others, |e| {
             e.category_name.clone().unwrap_or_else(|| "Unknown".into())
         });
