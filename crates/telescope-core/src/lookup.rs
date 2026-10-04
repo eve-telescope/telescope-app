@@ -1,17 +1,17 @@
 //! Pilot lookup pipeline: resolve names, serve from cache, fetch the rest
-//! with paced concurrency, and stream batched results/progress to the
-//! frontend as "pilot-batch" events (see [`PilotBatch`]).
+//! with paced concurrency, and stream batched results/progress to the UI
+//! over a channel (see [`PilotBatch`]).
 
 use futures::StreamExt;
 use log::{debug, error, info, warn};
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tokio::sync::mpsc::UnboundedSender;
 
 use std::collections::VecDeque;
 
 use crate::api::{create_client, esi, zkill};
+use crate::cache::Cache;
 use crate::domain::lookup::{
-    LookupEvent, LookupProgress, LookupTracker, BATCH_INTERVAL_MS, MAX_BATCH_SIZE,
+    BATCH_INTERVAL_MS, LookupEvent, LookupProgress, LookupTracker, MAX_BATCH_SIZE,
 };
 use crate::domain::threat::{calculate_threat_level, detect_pilot_flags};
 use crate::models::{CharacterInfo, PilotFlags, PilotIntel};
@@ -25,29 +25,26 @@ const MAX_CONCURRENT_LOOKUPS: usize = 8;
 /// while `buffer_unordered` above caps the number in flight at 8.
 const DISPATCH_INTERVAL_MS: u64 = 100;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug)]
 pub struct PilotResult {
     pub pilot: PilotIntel,
     pub index: usize,
 }
 
-/// Payload of the "pilot-batch" event: every pilot completed since the
-/// previous batch, plus the progress snapshot as of the last one. Replaces
-/// the former per-pilot "pilot-result" + "lookup-progress" event pair
-/// (2N IPC messages per scan) with at most one message per
+/// Every pilot completed since the previous batch, plus the progress
+/// snapshot as of the last one. At most one batch is sent per
 /// [`crate::domain::lookup::BATCH_INTERVAL_MS`].
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug)]
 pub struct PilotBatch {
     pub pilots: Vec<PilotResult>,
     pub progress: LookupProgress,
 }
 
-fn emit_batch(app: &AppHandle, pilots: Vec<PilotResult>, progress: LookupProgress) {
-    let _ = app.emit("pilot-batch", PilotBatch { pilots, progress });
-}
-
-#[tauri::command]
-pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<PilotIntel>, String> {
+pub async fn lookup_pilots(
+    cache: &Cache,
+    names_text: &str,
+    batches: UnboundedSender<PilotBatch>,
+) -> Result<Vec<PilotIntel>, String> {
     let client = create_client()?;
 
     let names: Vec<String> = names_text
@@ -73,7 +70,7 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
     let mut tracker = LookupTracker::new(total);
 
     // One delivery mode: every result — cached or fetched — enters this
-    // queue and leaves as a "pilot-batch" of at most MAX_BATCH_SIZE per
+    // queue and leaves as a batch of at most MAX_BATCH_SIZE per
     // BATCH_INTERVAL_MS tick. A hot cache doesn't teleport the list in as
     // one blob; it just drains the stream at full cadence, so the UI
     // animates identically regardless of where results came from.
@@ -82,7 +79,7 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
     for (i, name) in names.into_iter().enumerate() {
         let character_id = id_map.get(&name.to_lowercase()).copied();
 
-        if let Some(pilot) = try_from_cache(&app, character_id) {
+        if let Some(pilot) = try_from_cache(cache, character_id) {
             tracker.apply(LookupEvent::CacheHit);
             queue.push_back(PilotResult {
                 pilot: pilot.clone(),
@@ -103,7 +100,7 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
     let started = tokio::time::Instant::now();
     let mut lookups = futures::stream::iter(uncached.into_iter().enumerate().map(
         |(launch_index, (i, name, character_id))| {
-            let app = app.clone();
+            let cache = cache.clone();
             let client = client.clone();
             async move {
                 // Pace launches: the n-th lookup may not start before
@@ -115,7 +112,7 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
                         ),
                 )
                 .await;
-                let (pilot, _) = fetch_pilot_intel(&app, &client, name, character_id).await;
+                let (pilot, _) = fetch_pilot_intel(&cache, &client, name, character_id).await;
                 (i, pilot)
             }
         },
@@ -132,7 +129,7 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
                 if !queue.is_empty() {
                     let take = queue.len().min(MAX_BATCH_SIZE);
                     let batch: Vec<PilotResult> = queue.drain(..take).collect();
-                    emit_batch(&app, batch, tracker.progress());
+                    let _ = batches.send(PilotBatch { pilots: batch, progress: tracker.progress() });
                 }
             }
             next = lookups.next(), if !stream_done => {
@@ -161,11 +158,11 @@ pub async fn lookup_pilots(app: AppHandle, names_text: String) -> Result<Vec<Pil
     Ok(results)
 }
 
-fn try_from_cache(app: &AppHandle, character_id: Option<i64>) -> Option<PilotIntel> {
+fn try_from_cache(cache: &Cache, character_id: Option<i64>) -> Option<PilotIntel> {
     let id = character_id?;
 
-    let character = esi::try_get_cached_character(app, id)?;
-    let zkill_result = zkill::try_get_cached(app, id)?;
+    let character = esi::try_get_cached_character(cache, id)?;
+    let zkill_result = zkill::try_get_cached(cache, id)?;
 
     // Borrow for scoring, then move into the struct — no clone of the
     // stats (the activity heatmap makes that clone expensive) on the
@@ -184,17 +181,17 @@ fn try_from_cache(app: &AppHandle, character_id: Option<i64>) -> Option<PilotInt
 }
 
 async fn fetch_pilot_intel(
-    app: &AppHandle,
+    cache: &Cache,
     client: &reqwest::Client,
     name: String,
     character_id: Option<i64>,
 ) -> (PilotIntel, bool) {
     match character_id {
-        Some(id) => match esi::fetch_character_info(app, client, id).await {
+        Some(id) => match esi::fetch_character_info(cache, client, id).await {
             Ok(character) => {
                 debug!("Fetched ESI info for {} (ID: {})", character.name, id);
 
-                let (zkill, from_cache) = match zkill::fetch_stats(app, client, id).await {
+                let (zkill, from_cache) = match zkill::fetch_stats(cache, client, id).await {
                     Ok(result) => {
                         debug!(
                             "Fetched zKill stats for {} - {} kills, {} losses (cached: {})",

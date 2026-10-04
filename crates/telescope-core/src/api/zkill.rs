@@ -1,6 +1,6 @@
+use crate::cache::Cache;
 use log::{debug, error, warn};
 use reqwest::Client;
-use tauri::AppHandle;
 
 use super::{cache_get_json, cache_set};
 use crate::models::{ActivityHeatmap, ShipStats, SystemStats, ZkillStats};
@@ -13,18 +13,18 @@ pub struct FetchResult {
     pub from_cache: bool,
 }
 
-pub fn try_get_cached(app: &AppHandle, character_id: i64) -> Option<ZkillStats> {
-    cache_get_json(app, &format!("zkill:{}", character_id))
+pub fn try_get_cached(cache: &Cache, character_id: i64) -> Option<ZkillStats> {
+    cache_get_json(cache, &format!("zkill:{}", character_id))
 }
 
 pub async fn fetch_stats(
-    app: &AppHandle,
+    cache: &Cache,
     client: &Client,
     character_id: i64,
 ) -> Result<FetchResult, String> {
     let cache_key = format!("zkill:{}", character_id);
 
-    if let Some(cached) = try_get_cached(app, character_id) {
+    if let Some(cached) = try_get_cached(cache, character_id) {
         debug!("Cache HIT for zKill {}", character_id);
         return Ok(FetchResult {
             stats: cached,
@@ -72,7 +72,7 @@ pub async fn fetch_stats(
         debug!("No zKill data for character {}", character_id);
         let stats = ZkillStats::default();
 
-        cache_set(app, &cache_key, &stats, EMPTY_TTL_SECS, false);
+        cache_set(cache, &cache_key, &stats, EMPTY_TTL_SECS);
 
         return Ok(FetchResult {
             stats,
@@ -87,7 +87,7 @@ pub async fn fetch_stats(
 
     let stats = parse_zkill_response(&json);
 
-    cache_set(app, &cache_key, &stats, ttl_secs, true);
+    cache_set(cache, &cache_key, &stats, ttl_secs);
 
     Ok(FetchResult {
         stats,
@@ -170,38 +170,37 @@ fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
 
     if let Some(lists) = json.get("topLists").and_then(|v| v.as_array()) {
         for list in lists {
-            if list.get("type").and_then(|v| v.as_str()) == Some("shipType") {
-                if let Some(values) = list.get("values").and_then(|v| v.as_array()) {
-                    for (i, ship) in values.iter().enumerate() {
-                        if i >= 5 {
-                            break;
-                        }
-                        let ship_type_id =
-                            ship.get("shipTypeID").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let ship_name = ship
-                            .get("shipName")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string();
-                        let group_id = ship.get("groupID").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let group_name = ship
-                            .get("groupName")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string();
-                        let kills = ship.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let losses = ship.get("losses").and_then(|v| v.as_i64()).unwrap_or(0);
+            if list.get("type").and_then(|v| v.as_str()) == Some("shipType")
+                && let Some(values) = list.get("values").and_then(|v| v.as_array())
+            {
+                for (i, ship) in values.iter().enumerate() {
+                    if i >= 5 {
+                        break;
+                    }
+                    let ship_type_id = ship.get("shipTypeID").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let ship_name = ship
+                        .get("shipName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let group_id = ship.get("groupID").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let group_name = ship
+                        .get("groupName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let kills = ship.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let losses = ship.get("losses").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                        if ship_type_id > 0 {
-                            top_ships.push(ShipStats {
-                                ship_type_id,
-                                ship_name,
-                                group_id,
-                                group_name,
-                                kills,
-                                losses,
-                            });
-                        }
+                    if ship_type_id > 0 {
+                        top_ships.push(ShipStats {
+                            ship_type_id,
+                            ship_name,
+                            group_id,
+                            group_name,
+                            kills,
+                            losses,
+                        });
                     }
                 }
             }
@@ -216,30 +215,30 @@ fn parse_top_systems(json: &serde_json::Value) -> Vec<SystemStats> {
 
     if let Some(lists) = json.get("topLists").and_then(|v| v.as_array()) {
         for list in lists {
-            if list.get("type").and_then(|v| v.as_str()) == Some("solarSystem") {
-                if let Some(values) = list.get("values").and_then(|v| v.as_array()) {
-                    for (i, sys) in values.iter().enumerate() {
-                        if i >= 5 {
-                            break;
-                        }
-                        let system_id = sys
-                            .get("solarSystemID")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0);
-                        let system_name = sys
-                            .get("solarSystemName")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string();
-                        let kills = sys.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
+            if list.get("type").and_then(|v| v.as_str()) == Some("solarSystem")
+                && let Some(values) = list.get("values").and_then(|v| v.as_array())
+            {
+                for (i, sys) in values.iter().enumerate() {
+                    if i >= 5 {
+                        break;
+                    }
+                    let system_id = sys
+                        .get("solarSystemID")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    let system_name = sys
+                        .get("solarSystemName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let kills = sys.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                        if system_id > 0 {
-                            top_systems.push(SystemStats {
-                                system_id,
-                                system_name,
-                                kills,
-                            });
-                        }
+                    if system_id > 0 {
+                        top_systems.push(SystemStats {
+                            system_id,
+                            system_name,
+                            kills,
+                        });
                     }
                 }
             }
@@ -258,10 +257,10 @@ fn parse_activity(json: &serde_json::Value) -> Option<ActivityHeatmap> {
     for (day, row) in data.iter_mut().enumerate() {
         if let Some(day_data) = activity.get(day.to_string()).and_then(|v| v.as_object()) {
             for (hour_str, count) in day_data {
-                if let Ok(hour) = hour_str.parse::<usize>() {
-                    if hour < 24 {
-                        row[hour] = count.as_i64().unwrap_or(0);
-                    }
+                if let Ok(hour) = hour_str.parse::<usize>()
+                    && hour < 24
+                {
+                    row[hour] = count.as_i64().unwrap_or(0);
                 }
             }
         }

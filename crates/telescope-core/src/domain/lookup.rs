@@ -22,7 +22,7 @@ pub const MAX_BATCH_SIZE: usize = 25;
 
 /// Progress snapshot embedded in the "pilot-batch" event — field
 /// names/shape are frozen (frontend contract).
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct LookupProgress {
     pub current: usize,
     pub total: usize,

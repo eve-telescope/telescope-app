@@ -1,8 +1,8 @@
+use crate::cache::Cache;
 use log::{debug, error, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::AppHandle;
 
 use super::{cache_get_json, cache_set};
 use crate::models::CharacterInfo;
@@ -83,16 +83,16 @@ pub async fn resolve_character_ids(
     Ok(map)
 }
 
-pub fn try_get_cached_character(app: &AppHandle, character_id: i64) -> Option<CharacterInfo> {
-    cache_get_json(app, &format!("char:{}", character_id))
+pub fn try_get_cached_character(cache: &Cache, character_id: i64) -> Option<CharacterInfo> {
+    cache_get_json(cache, &format!("char:{}", character_id))
 }
 
 pub async fn fetch_character_info(
-    app: &AppHandle,
+    cache: &Cache,
     client: &Client,
     character_id: i64,
 ) -> Result<CharacterInfo, String> {
-    if let Some(cached) = try_get_cached_character(app, character_id) {
+    if let Some(cached) = try_get_cached_character(cache, character_id) {
         debug!("Cache HIT for character {}", character_id);
         return Ok(cached);
     }
@@ -127,7 +127,7 @@ pub async fn fetch_character_info(
 
     // Corp and alliance are independent lookups — fetch them concurrently.
     let corp_fut = fetch_affiliation(
-        app,
+        cache,
         client,
         format!("corp:{}", esi_char.corporation_id),
         format!(
@@ -139,7 +139,7 @@ pub async fn fetch_character_info(
         match esi_char.alliance_id {
             Some(alliance_id) => {
                 fetch_affiliation(
-                    app,
+                    cache,
                     client,
                     format!("alliance:{}", alliance_id),
                     format!(
@@ -166,13 +166,7 @@ pub async fn fetch_character_info(
         alliance_ticker,
     };
 
-    cache_set(
-        app,
-        &format!("char:{}", character_id),
-        &info,
-        ttl_secs,
-        false,
-    );
+    cache_set(cache, &format!("char:{}", character_id), &info, ttl_secs);
 
     Ok(info)
 }
@@ -185,12 +179,12 @@ pub async fn fetch_character_info(
 /// (bounded by the 8-way lookup concurrency cap). Single-flighting the
 /// request per cache key would be the deeper fix.
 async fn fetch_affiliation(
-    app: &AppHandle,
+    cache: &Cache,
     client: &Client,
     cache_key: String,
     url: String,
 ) -> (Option<String>, Option<String>) {
-    if let Some(cached) = cache_get_json::<EsiAffiliation>(app, &cache_key) {
+    if let Some(cached) = cache_get_json::<EsiAffiliation>(cache, &cache_key) {
         return (Some(cached.name), Some(cached.ticker));
     }
 
@@ -208,7 +202,7 @@ async fn fetch_affiliation(
         }
     };
 
-    cache_set(app, &cache_key, &affiliation, AFFILIATION_TTL_SECS, false);
+    cache_set(cache, &cache_key, &affiliation, AFFILIATION_TTL_SECS);
 
     (Some(affiliation.name), Some(affiliation.ticker))
 }

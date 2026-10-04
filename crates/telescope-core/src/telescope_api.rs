@@ -19,10 +19,10 @@ impl TelescopeClient {
             .lock()
             .map_err(|_| "HTTP client cache lock poisoned".to_string())?;
 
-        if let Some((cached_token, client)) = guard.as_ref() {
-            if cached_token == token {
-                return Ok(client.clone());
-            }
+        if let Some((cached_token, client)) = guard.as_ref()
+            && cached_token == token
+        {
+            return Ok(client.clone());
         }
 
         let client = build_client(token)?;

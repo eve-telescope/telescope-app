@@ -17,7 +17,7 @@ use tokio::io::AsyncWriteExt;
 use zip::ZipArchive;
 
 use crate::domain::dscan::SdeIndex;
-use crate::domain::sde_lifecycle::{step, SdeEffect, SdeEvent, SdePhase};
+use crate::domain::sde_lifecycle::{SdeEffect, SdeEvent, SdePhase, step};
 use crate::models::{ScanTypeIndexEntry, SdeStatus};
 
 const SDE_URL: &str =

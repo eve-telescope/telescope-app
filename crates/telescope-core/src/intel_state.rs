@@ -48,14 +48,14 @@ impl IntelState {
 
     pub fn load(app_dir: &Path) -> Self {
         let path = app_dir.join("intel_state.json");
-        if let Ok(json) = fs::read_to_string(path) {
-            if let Ok(persisted) = serde_json::from_str::<PersistedState>(&json) {
-                return Self {
-                    api_token: persisted.api_token,
-                    active_network_ids: persisted.active_network_ids,
-                    ..Self::default()
-                };
-            }
+        if let Ok(json) = fs::read_to_string(path)
+            && let Ok(persisted) = serde_json::from_str::<PersistedState>(&json)
+        {
+            return Self {
+                api_token: persisted.api_token,
+                active_network_ids: persisted.active_network_ids,
+                ..Self::default()
+            };
         }
         Self::default()
     }
