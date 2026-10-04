@@ -1,39 +1,30 @@
-//! The annotation editor: preset tags, free-text tags, a note and a preview.
-//! Used from the pilot context menu (fixed target) and the network manager
-//! (target picked with the entity search).
+//! The annotation editor. Opened for a fixed target from the intel panel and
+//! the network's annotation list, or with an entity search to pick one.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::{Disableable as _, Sizable as _, WindowExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window, div, px,
+    App, AppContext as _, Context, Entity, FontWeight, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
 };
-use telescope_core::view::annotations::{
-    Annotation, DEFAULT_ANNOTATION_COLOR, EntityType, PRESET_ANNOTATION_TAGS, annotation_color,
-    parse_annotation_tags,
-};
-use telescope_core::view::network::toggle_annotation_tag;
+use telescope_core::view::annotations::{Annotation, EntityType, Target, normalize_annotation_tag};
 
 use crate::state::Stores;
-use crate::theme::{self, BG_3, TEXT_2, TEXT_3};
+use crate::theme::{self, BG_1, BORDER, TEXT_1, TEXT_3};
+use crate::ui::IconName;
 use crate::views::entity_search::{EntitySearch, EntitySearchEvent};
-
-#[derive(Clone)]
-pub struct Target {
-    pub entity_type: EntityType,
-    pub id: i64,
-    pub name: String,
-}
+use crate::views::intel_card::{scope_pill, tag_options, target_avatar, toggle_chip};
 
 pub struct AnnotationForm {
     network_id: i64,
     existing: Option<i64>,
     target: Option<Target>,
     search: Option<Entity<EntitySearch>>,
-    tags: Entity<InputState>,
+    tags: Vec<String>,
+    customs: Vec<(String, String)>,
+    new_tag: Entity<InputState>,
     note: Entity<TextareaState>,
     _subscriptions: Vec<Subscription>,
 }
@@ -46,31 +37,22 @@ impl AnnotationForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let tag_text = existing.map(|a| a.tags.join(" | ")).unwrap_or_default();
         let note_text = existing.and_then(|a| a.note.clone()).unwrap_or_default();
-        let tags = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Tags separated by |")
-                .default_value(tag_text)
-        });
+        let new_tag = cx.new(|cx| InputState::new(window, cx).placeholder("Add a tag"));
         let note = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .rows(4)
-                .placeholder("Note")
+                .placeholder("What should your network know?")
                 .default_value(note_text)
         });
-        let mut subscriptions = vec![
-            cx.subscribe(&tags, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify()
-                }
-            }),
-            cx.subscribe(&note, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify()
-                }
-            }),
-        ];
+        let mut subscriptions =
+            vec![
+                cx.subscribe_in(&new_tag, window, |this, _, event, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.add_typed_tag(window, cx);
+                    }
+                }),
+            ];
         let search = target.is_none().then(|| {
             let search = cx.new(|cx| EntitySearch::new(None, window, cx));
             subscriptions.push(cx.subscribe(&search, |this, _, event, cx| {
@@ -84,25 +66,40 @@ impl AnnotationForm {
             }));
             search
         });
+        let customs = Stores::get(cx)
+            .intel
+            .read(cx)
+            .network_custom_tags(network_id);
         Self {
             network_id,
             existing: existing.map(|a| a.id),
             target,
             search,
-            tags,
+            tags: existing.map(|a| a.tags.clone()).unwrap_or_default(),
+            customs,
+            new_tag,
             note,
             _subscriptions: subscriptions,
         }
     }
 
-    fn tag_list(&self, cx: &App) -> Vec<String> {
-        parse_annotation_tags(&self.tags.read(cx).value())
+    fn toggle(&mut self, tag: &str, cx: &mut Context<Self>) {
+        match self.tags.iter().position(|t| t == tag) {
+            Some(i) => {
+                self.tags.remove(i);
+            }
+            None => self.tags.push(tag.to_string()),
+        }
+        cx.notify();
     }
 
-    fn toggle_preset(&mut self, tag: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let next = toggle_annotation_tag(&self.tags.read(cx).value(), tag);
-        self.tags
-            .update(cx, |state, cx| state.set_value(next, window, cx));
+    fn add_typed_tag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let tag = normalize_annotation_tag(&self.new_tag.read(cx).value());
+        if !tag.is_empty() && !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
+        self.new_tag
+            .update(cx, |state, cx| state.set_value("", window, cx));
         cx.notify();
     }
 
@@ -110,112 +107,133 @@ impl AnnotationForm {
         let Some(target) = self.target.clone() else {
             return;
         };
-        let tags = self.tag_list(cx);
         let note = Some(self.note.read(cx).value().to_string());
-        let (network_id, existing) = (self.network_id, self.existing);
+        let (network_id, existing, tags) = (self.network_id, self.existing, self.tags.clone());
         Stores::get(cx).intel.update(cx, |intel, cx| {
-            intel.save_annotation(
-                network_id,
-                existing,
-                target.entity_type,
-                target.id,
-                target.name,
-                tags,
-                note,
-                cx,
-            )
+            intel.save_annotation(network_id, existing, target, tags, note, cx)
         });
         window.close_dialog(cx);
     }
+
+    fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(entry_id) = self.existing {
+            let network_id = self.network_id;
+            Stores::get(cx)
+                .intel
+                .update(cx, |intel, cx| intel.remove_entry(network_id, entry_id, cx));
+        }
+        window.close_dialog(cx);
+    }
+
+    fn render_target(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        match (&self.target, &self.search) {
+            (Some(target), search) => div()
+                .flex()
+                .items_center()
+                .gap_2p5()
+                .p_2p5()
+                .rounded_md()
+                .bg(theme::color(BG_1))
+                .border_1()
+                .border_color(theme::color(BORDER))
+                .child(target_avatar(target, 32.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::color(TEXT_1))
+                        .child(target.name.clone()),
+                )
+                .child(scope_pill(target.entity_type))
+                .when(search.is_some(), |el| {
+                    el.child(
+                        Button::new("change-target")
+                            .ghost()
+                            .xsmall()
+                            .label("Change")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.target = None;
+                                cx.notify();
+                            })),
+                    )
+                })
+                .into_any_element(),
+            (None, Some(search)) => search.clone().into_any_element(),
+            (None, None) => div().into_any_element(),
+        }
+    }
+}
+
+fn label(text: &'static str) -> impl IntoElement {
+    div()
+        .text_size(px(10.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::color(TEXT_3))
+        .child(text)
 }
 
 impl Render for AnnotationForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tags = self.tag_list(cx);
-        let color = annotation_color(&tags, None)
-            .unwrap_or(DEFAULT_ANNOTATION_COLOR)
-            .to_string();
-
         div()
             .flex()
             .flex_col()
             .gap_3()
-            .when_some(self.search.clone(), |el, search| {
-                el.child(label("TARGET")).child(search)
-            })
-            .when_some(
-                self.target.clone().filter(|_| self.search.is_none()),
-                |el, target| {
-                    el.child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::color(TEXT_2))
-                            .child(format!("{} · {}", target.name, target.entity_type)),
-                    )
-                },
-            )
+            .child(self.render_target(cx))
             .child(label("TAGS"))
             .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_1p5()
-                    .children(PRESET_ANNOTATION_TAGS.iter().map(|preset| {
-                        let active = tags.iter().any(|t| t == preset.tag);
-                        let tag = preset.tag;
-                        div()
-                            .id(SharedString::from(format!("preset-{}", preset.tag)))
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .border_1()
-                            .text_size(px(10.))
-                            .font_weight(FontWeight::BOLD)
-                            .cursor_pointer()
-                            .text_color(theme::hex_or(preset.color, TEXT_2))
-                            .bg(theme::hex_tint(
-                                preset.color,
-                                if active { 0x33 } else { 0x11 },
-                                TEXT_3,
-                            ))
-                            .border_color(if active {
-                                theme::hex_or(preset.color, TEXT_2)
-                            } else {
-                                gpui_kit::transparent_black()
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.toggle_preset(tag, window, cx)
-                            }))
-                            .child(preset.tag)
-                    })),
+                div().flex().flex_wrap().gap_1().children(
+                    tag_options(&self.tags, &self.customs)
+                        .into_iter()
+                        .map(|(tag, color)| {
+                            let active = self.tags.contains(&tag);
+                            toggle_chip(
+                                SharedString::from(format!("form-chip-{tag}")).into(),
+                                &tag,
+                                &color,
+                                active,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&tag, cx)))
+                        }),
+                ),
             )
-            .child(Input::new(&self.tags).small())
-            .child(label("NOTE"))
-            .child(Textarea::new(&self.note).small())
-            .when(!tags.is_empty(), |el| {
-                el.child(label("PREVIEW"))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_1()
-                            .children(tags.iter().map(|tag| {
-                                div()
-                                    .px_1p5()
-                                    .rounded_sm()
-                                    .text_size(px(10.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .bg(theme::hex_tint(&color, 0x22, BG_3))
-                                    .text_color(theme::hex_or(&color, TEXT_2))
-                                    .child(tag.clone())
-                            })),
-                    )
-            })
             .child(
                 div()
                     .flex()
-                    .justify_end()
                     .gap_2()
+                    .child(div().flex_1().child(Input::new(&self.new_tag).small()))
+                    .child(
+                        Button::new("add-tag")
+                            .outline()
+                            .small()
+                            .icon(IconName::Plus)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.add_typed_tag(window, cx)),
+                            ),
+                    ),
+            )
+            .child(label("NOTE"))
+            .child(Textarea::new(&self.note).small().h(px(88.)))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .when(self.existing.is_some(), |el| {
+                        el.child(
+                            Button::new("annotation-delete")
+                                .ghost()
+                                .danger()
+                                .icon(IconName::Trash)
+                                .label("Delete")
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.delete(window, cx)),
+                                ),
+                        )
+                    })
+                    .child(div().flex_1())
                     .child(
                         Button::new("annotation-cancel")
                             .ghost()
@@ -233,16 +251,8 @@ impl Render for AnnotationForm {
     }
 }
 
-fn label(text: &'static str) -> impl IntoElement {
-    div()
-        .text_size(px(10.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::color(TEXT_3))
-        .child(text)
-}
-
-/// Opens the editor in a dialog. With `target` unset, the dialog starts with
-/// an entity search.
+/// Opens the editor in a dialog. With `target` unset, it starts with an
+/// entity search.
 pub fn open(
     network_id: i64,
     target: Option<Target>,
@@ -250,13 +260,12 @@ pub fn open(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let title: SharedString = match (&target, existing) {
-        (Some(t), _) => format!("Annotate {}", t.name).into(),
-        (None, Some(_)) => "Edit annotation".into(),
-        (None, None) => "Add annotation".into(),
+    let title: SharedString = match existing {
+        Some(_) => "Edit annotation".into(),
+        None => "Add annotation".into(),
     };
     let form = cx.new(|cx| AnnotationForm::new(network_id, target, existing, window, cx));
     window.open_dialog(cx, move |dialog, _, _| {
-        dialog.title(title.clone()).w(px(420.)).child(form.clone())
+        dialog.title(title.clone()).w(px(440.)).child(form.clone())
     });
 }

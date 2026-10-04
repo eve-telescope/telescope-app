@@ -289,6 +289,126 @@ pub fn resolve_pilot_annotations<'a>(
     )
 }
 
+/// Something that can be annotated: a character, corporation or alliance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub entity_type: EntityType,
+    pub id: i64,
+    pub name: String,
+}
+
+impl Target {
+    /// The pilot, then their corporation and alliance when known.
+    pub fn for_pilot(pilot: &PilotIntel) -> Vec<Target> {
+        let c = &pilot.character;
+        let mut targets = vec![Target {
+            entity_type: EntityType::Character,
+            id: c.id,
+            name: c.name.clone(),
+        }];
+        if let (Some(id), Some(name)) =
+            (c.corporation_id.filter(|id| *id != 0), &c.corporation_name)
+        {
+            targets.push(Target {
+                entity_type: EntityType::Corporation,
+                id,
+                name: name.clone(),
+            });
+        }
+        if let (Some(id), Some(name)) = (c.alliance_id.filter(|id| *id != 0), &c.alliance_name) {
+            targets.push(Target {
+                entity_type: EntityType::Alliance,
+                id,
+                name: name.clone(),
+            });
+        }
+        targets
+    }
+
+    pub fn of(annotation: &Annotation) -> Target {
+        Target {
+            entity_type: annotation.target_type,
+            id: annotation.target_id,
+            name: annotation.target_name.clone(),
+        }
+    }
+}
+
+/// The annotation `network_id` holds for `target`, if any.
+pub fn find_annotation<'a>(
+    index: &'a AnnotationIndex,
+    network_id: i64,
+    target: &Target,
+) -> Option<&'a Annotation> {
+    index
+        .get(&(target.entity_type, target.id))?
+        .iter()
+        .find(|a| a.network_id == network_id)
+}
+
+/// Non-preset tags used on `network_id`, alphabetically, each with the color
+/// of the first annotation carrying it.
+pub fn custom_tags(index: &AnnotationIndex, network_id: i64) -> Vec<(String, String)> {
+    let mut tags: Vec<(String, String)> = Vec::new();
+    for annotation in index
+        .values()
+        .flatten()
+        .filter(|a| a.network_id == network_id)
+    {
+        for tag in &annotation.tags {
+            let preset = PRESET_ANNOTATION_TAGS.iter().any(|p| p.tag == tag);
+            if !preset && !tags.iter().any(|(t, _)| t == tag) {
+                let color = annotation
+                    .color
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_ANNOTATION_COLOR.into());
+                tags.push((tag.clone(), color));
+            }
+        }
+    }
+    tags.sort();
+    tags
+}
+
+/// What toggling one tag on a target's annotation should do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagToggle {
+    Create(Vec<String>),
+    Update {
+        entry_id: i64,
+        tags: Vec<String>,
+    },
+    /// The last tag went away; the annotation is removed even with a note,
+    /// matching the original quick toggle.
+    Remove {
+        entry_id: i64,
+    },
+}
+
+pub fn toggle_tag(existing: Option<&Annotation>, tag: &str) -> TagToggle {
+    let tag = normalize_annotation_tag(tag);
+    let Some(existing) = existing else {
+        return TagToggle::Create(vec![tag]);
+    };
+    let mut tags = existing.tags.clone();
+    match tags.iter().position(|t| *t == tag) {
+        Some(i) => {
+            tags.remove(i);
+        }
+        None => tags.push(tag),
+    }
+    if tags.is_empty() {
+        TagToggle::Remove {
+            entry_id: existing.id,
+        }
+    } else {
+        TagToggle::Update {
+            entry_id: existing.id,
+            tags,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,6 +427,10 @@ mod tests {
             label: label.map(str::to_string),
             notes: None,
         }
+    }
+
+    fn annotation_with_tags(tags: &[&str]) -> Annotation {
+        Annotation::from_intel_entry(&entry(10, "character", 42, Some(&tags.join(" | ")))).unwrap()
     }
 
     #[test]
@@ -523,5 +647,75 @@ mod tests {
                 .iter()
                 .any(|r| r.annotation.tags.contains(&"HOSTILE".to_string()))
         );
+    }
+
+    #[test]
+    fn toggle_tag_creates_updates_and_removes() {
+        assert_eq!(
+            toggle_tag(None, "hostile"),
+            TagToggle::Create(vec!["HOSTILE".into()])
+        );
+
+        let a = annotation_with_tags(&["HOSTILE", "SPY"]);
+        assert_eq!(
+            toggle_tag(Some(&a), "SPY"),
+            TagToggle::Update {
+                entry_id: a.id,
+                tags: vec!["HOSTILE".into()]
+            }
+        );
+        assert_eq!(
+            toggle_tag(Some(&a), "Scout"),
+            TagToggle::Update {
+                entry_id: a.id,
+                tags: vec!["HOSTILE".into(), "SPY".into(), "SCOUT".into()]
+            }
+        );
+
+        let single = annotation_with_tags(&["HOSTILE"]);
+        assert_eq!(
+            toggle_tag(Some(&single), "HOSTILE"),
+            TagToggle::Remove {
+                entry_id: single.id
+            }
+        );
+    }
+
+    #[test]
+    fn find_and_custom_tags_are_scoped_to_the_network() {
+        let mut ours = annotation_with_tags(&["HOSTILE", "BAITER"]);
+        ours.network_id = 1;
+        ours.color = Some("#123456".into());
+        let mut theirs = annotation_with_tags(&["OTHER"]);
+        theirs.network_id = 2;
+        theirs.id += 1;
+        let target = Target::of(&ours);
+        let index = annotations_by_target_key([ours.clone(), theirs]);
+
+        assert_eq!(find_annotation(&index, 1, &target), Some(&ours));
+        assert_eq!(find_annotation(&index, 3, &target), None);
+        assert_eq!(
+            custom_tags(&index, 1),
+            vec![("BAITER".to_string(), "#123456".to_string())]
+        );
+    }
+
+    #[test]
+    fn targets_for_pilot_skip_missing_affiliations() {
+        let pilot = affiliated_pilot(7, "Pilot");
+        let types: Vec<_> = Target::for_pilot(&pilot)
+            .iter()
+            .map(|t| t.entity_type)
+            .collect();
+        assert_eq!(
+            types,
+            [
+                EntityType::Character,
+                EntityType::Corporation,
+                EntityType::Alliance
+            ]
+        );
+        let solo = crate::view::test_support::pilot(8, "Solo");
+        assert_eq!(Target::for_pilot(&solo).len(), 1);
     }
 }

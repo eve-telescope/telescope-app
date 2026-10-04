@@ -4,9 +4,10 @@ use std::rc::Rc;
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    Pixels, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _, Subscription,
-    Window, div, img, px, size,
+    AnyElement, Context, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, ParentElement as _, Pixels, Point, Render,
+    SharedString, Size, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    anchored, deferred, div, img, px, size,
 };
 use telescope_core::models::PilotIntel;
 use telescope_core::view::format::{
@@ -25,7 +26,8 @@ use crate::theme::{
 };
 use crate::ui::{Icon, IconName, mono, section_title};
 use crate::views::grid::{Col, cell};
-use crate::views::intel_menu::{annotation_notes_button, pilot_context_menu};
+use crate::views::intel_card::{Close, intel_panel};
+use crate::views::notes::annotation_notes_button;
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
 use crate::views::stats::danger_cell;
 use crate::views::tags::{TABLE, role_glyph, tag_strip};
@@ -49,6 +51,9 @@ pub struct LocalPanel {
     rows: Vec<PilotIntel>,
     row_sizes: Rc<Vec<Size<Pixels>>>,
     scroll: VirtualListScrollHandle,
+    /// The pilot whose intel panel is open, and where it was opened.
+    menu: Option<(i64, Point<Pixels>)>,
+    menu_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -78,6 +83,8 @@ impl LocalPanel {
             rows: Vec::new(),
             row_sizes: Rc::new(Vec::new()),
             scroll: VirtualListScrollHandle::new(),
+            menu: None,
+            menu_focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
         panel.refresh(cx);
@@ -225,7 +232,7 @@ impl LocalPanel {
     fn render_row(
         &self,
         pilot: &PilotIntel,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = pilot.character.id;
@@ -233,7 +240,7 @@ impl LocalPanel {
         let intel = Stores::get(cx).intel.read(cx);
         let resolved = intel.resolve(pilot);
         let tags = pilot_tags(pilot, &resolved);
-        let notes = annotation_notes_button(pilot, &resolved, cx);
+        let notes = annotation_notes_button(pilot, &resolved);
         let threat = theme::threat_color(&pilot.threat_level);
         let row_cell = |col: Col| cell(col).px_2().py_1p5();
         let dash = || div().text_color(theme::color(TEXT_3)).child("—");
@@ -249,6 +256,14 @@ impl LocalPanel {
             .border_color(threat)
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_expand(id, cx)))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    this.menu = Some((id, event.position));
+                    window.focus(&this.menu_focus, cx);
+                    cx.notify();
+                }),
+            )
             .child(row_cell(COLS[0]).child(threat_badge(&pilot.threat_level)))
             .child(
                 row_cell(COLS[1]).child(
@@ -331,8 +346,6 @@ impl LocalPanel {
                 80.,
                 px(14.),
             )));
-
-        let main_row = pilot_context_menu(main_row, pilot, window, cx);
 
         div()
             .w_full()
@@ -556,6 +569,42 @@ impl LocalPanel {
     }
 }
 
+impl LocalPanel {
+    fn close_menu(&mut self, cx: &mut Context<Self>) {
+        if self.menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn render_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (id, position) = self.menu?;
+        let pilot = self.rows.iter().find(|p| p.character.id == id)?;
+        let this = cx.entity().downgrade();
+        let close: Close = Rc::new(move |_, cx| {
+            let _ = this.update(cx, |this, cx| this.close_menu(cx));
+        });
+        Some(
+            deferred(
+                anchored()
+                    .position(position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .track_focus(&self.menu_focus)
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
+                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                if event.keystroke.key == "escape" {
+                                    this.close_menu(cx);
+                                }
+                            }))
+                            .child(intel_panel(pilot, close, cx)),
+                    ),
+            )
+            .with_priority(1),
+        )
+    }
+}
+
 impl Render for LocalPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let scan = Stores::get(cx).scan.read(cx);
@@ -572,6 +621,7 @@ impl Render for LocalPanel {
             .overflow_hidden()
             .child(self.render_table(cx))
             .child(self.render_sidebar(cx))
+            .children(self.render_menu(cx))
             .into_any_element()
     }
 }

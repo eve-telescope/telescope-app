@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 use telescope_core::intel_service::AccessInput;
 use telescope_core::models::{NetworkAccess, NetworkDetail, NetworkScan, PaginatedScans};
-use telescope_core::view::annotations::{Annotation, DEFAULT_ANNOTATION_COLOR};
+use telescope_core::view::annotations::{Annotation, DEFAULT_ANNOTATION_COLOR, Target};
 use telescope_core::view::format::relative_time;
 use telescope_core::view::network::{
     PermissionLevel, access_permission_label, can_remove_access, describe_permission, portrait_url,
@@ -23,7 +23,7 @@ use crate::theme::{
     self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, GREEN, RED, TEXT_1, TEXT_2, TEXT_3,
 };
 use crate::ui::{Icon, IconName};
-use crate::views::annotation_form::{self, Target};
+use crate::views::annotation_form;
 use crate::views::entity_search::{EntitySearch, EntitySearchEvent};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -771,12 +771,13 @@ fn entries_tab(network_id: i64, annotations: Vec<Annotation>) -> impl IntoElemen
                         .icon(IconName::Pencil)
                         .tooltip("Edit")
                         .on_click(move |_, window, cx| {
-                            let target = Target {
-                                entity_type: edit.target_type,
-                                id: edit.target_id,
-                                name: edit.target_name.clone(),
-                            };
-                            annotation_form::open(network_id, Some(target), Some(&edit), window, cx)
+                            annotation_form::open(
+                                network_id,
+                                Some(Target::of(&edit)),
+                                Some(&edit),
+                                window,
+                                cx,
+                            )
                         }),
                 )
                 .child(

@@ -11,9 +11,9 @@ use telescope_core::models::{
 };
 use telescope_core::realtime::{self, RealtimeEvent, RealtimeHandle};
 use telescope_core::view::annotations::{
-    Annotation, AnnotationIndex, EntityType, ResolvedAnnotation, annotation_save_color,
-    annotations_by_target_key, annotations_from_entries, resolve_pilot_annotations,
-    serialize_annotation_tags,
+    Annotation, AnnotationIndex, EntityType, ResolvedAnnotation, TagToggle, Target,
+    annotation_save_color, annotations_by_target_key, annotations_from_entries, custom_tags,
+    find_annotation, resolve_pilot_annotations, serialize_annotation_tags, toggle_tag,
 };
 use telescope_core::view::scan_input::ScanInputKind;
 
@@ -107,12 +107,27 @@ impl IntelStore {
         self.state.networks.iter().find(|n| n.id == id)
     }
 
-    pub fn annotations(&self) -> impl Iterator<Item = &Annotation> {
-        self.annotations.values().flatten()
-    }
-
     pub fn resolve(&self, pilot: &PilotIntel) -> Vec<ResolvedAnnotation<'_>> {
         resolve_pilot_annotations(pilot, &self.annotations)
+    }
+
+    /// Custom tags in use on `network_id`: from looked-up entries, plus the
+    /// network's full annotation list when it is the selected network.
+    pub fn network_custom_tags(&self, network_id: i64) -> Vec<(String, String)> {
+        let mut index = self.annotations.clone();
+        if let Some(detail) = self.selected_network().filter(|n| n.id == network_id) {
+            for annotation in detail
+                .entries
+                .iter()
+                .filter_map(|e| Annotation::from_entry_detail(e, detail.id, &detail.name))
+            {
+                index
+                    .entry((annotation.target_type, annotation.target_id))
+                    .or_default()
+                    .push(annotation);
+            }
+        }
+        custom_tags(&index, network_id)
     }
 
     pub fn annotation_index(&self) -> &AnnotationIndex {
@@ -320,38 +335,31 @@ impl IntelStore {
     }
 
     /// Creates, updates or (with no tags and no note) deletes an annotation.
-    #[allow(clippy::too_many_arguments)]
     pub fn save_annotation(
         &mut self,
         network_id: i64,
         existing: Option<i64>,
-        target_type: EntityType,
-        target_id: i64,
-        target_name: String,
+        target: Target,
         tags: Vec<String>,
         note: Option<String>,
         cx: &mut Context<Self>,
     ) {
         let note = note.filter(|n| !n.trim().is_empty());
-        let service = self.service.clone();
         if tags.is_empty() && note.is_none() {
             if let Some(entry_id) = existing {
-                self.run(
-                    async move { service.remove_entry(network_id, entry_id).await },
-                    cx,
-                    |_, (), _| {},
-                );
+                self.remove_entry(network_id, entry_id, cx);
             }
             return;
         }
         let input = EntryInput {
-            entity_type: target_type.as_str().to_string(),
-            entity_id: target_id,
-            entity_name: target_name,
+            entity_type: target.entity_type.as_str().to_string(),
+            entity_id: target.id,
+            entity_name: target.name,
             color: annotation_save_color(&tags).to_string(),
             label: serialize_annotation_tags(&tags),
             notes: note,
         };
+        let service = self.service.clone();
         match existing {
             Some(entry_id) => self.run(
                 async move { service.update_entry(network_id, entry_id, input).await },
@@ -363,6 +371,27 @@ impl IntelStore {
                 cx,
                 |_, _, _| {},
             ),
+        }
+    }
+
+    /// Adds or removes one tag on `target`'s annotation in `network_id`.
+    pub fn toggle_tag(
+        &mut self,
+        network_id: i64,
+        target: Target,
+        tag: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let existing = find_annotation(&self.annotations, network_id, &target).cloned();
+        match toggle_tag(existing.as_ref(), tag) {
+            TagToggle::Create(tags) => {
+                self.save_annotation(network_id, None, target, tags, None, cx)
+            }
+            TagToggle::Update { entry_id, tags } => {
+                let note = existing.and_then(|a| a.note);
+                self.save_annotation(network_id, Some(entry_id), target, tags, note, cx)
+            }
+            TagToggle::Remove { entry_id } => self.remove_entry(network_id, entry_id, cx),
         }
     }
 
