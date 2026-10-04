@@ -9,4 +9,5 @@ pub mod network_manager;
 pub mod pilot_details;
 pub mod settings_panel;
 pub mod share_button;
+pub mod shortcut_editor;
 pub mod threat_summary;

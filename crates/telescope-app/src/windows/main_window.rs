@@ -239,6 +239,10 @@ pub fn open(cx: &mut App) {
     }
 }
 
+pub fn handle(cx: &App) -> Option<AnyWindowHandle> {
+    cx.try_global::<MainWindow>().map(|w| w.0)
+}
+
 pub fn focus(cx: &mut App) {
     if let Some(MainWindow(handle, _)) = cx.try_global::<MainWindow>() {
         let handle = *handle;
