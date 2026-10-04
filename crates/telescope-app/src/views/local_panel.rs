@@ -10,8 +10,7 @@ use gpui_kit::{
 };
 use telescope_core::models::PilotIntel;
 use telescope_core::view::format::{
-    alliance_logo_url, character_portrait_url, corporation_logo_url, format_ppk, ship_icon_url,
-    to_fixed,
+    alliance_logo_url, character_portrait_url, corporation_logo_url, ship_icon_url,
 };
 use telescope_core::view::pilot_counts::tag_counts;
 use telescope_core::view::pilot_filters::UNKNOWN_CORPORATION;
@@ -22,31 +21,26 @@ use telescope_core::view::pilot_tags::{
 
 use crate::state::Stores;
 use crate::theme::{
-    self, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, ORANGE, RED, TEXT_1, TEXT_2, TEXT_3,
+    self, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, RED, TEXT_1, TEXT_2, TEXT_3,
 };
 use crate::ui::{Icon, IconName, mono, section_title};
-use crate::views::grid::{Col, cell, span};
+use crate::views::grid::{Col, cell};
 use crate::views::intel_menu::{annotation_notes_button, pilot_context_menu};
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
-use crate::views::stats::{isk_cell, kd_cell};
+use crate::views::stats::danger_cell;
 use crate::views::tags::{TABLE, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 40.;
 const ERROR_HEIGHT: f32 = 24.;
 
-const COLS: [Col; 12] = [
+const COLS: [Col; 7] = [
     Col::Fixed(64.),
     Col::Grow(180., 1.6),
-    Col::Grow(110., 1.0),
+    Col::Grow(150., 1.2),
     Col::Grow(140., 1.2),
     Col::Grow(140., 1.2),
     Col::Fixed(168.),
-    Col::Fixed(56.),
-    Col::Fixed(72.),
-    Col::Fixed(84.),
-    Col::Fixed(56.),
-    Col::Fixed(56.),
-    Col::Fixed(64.),
+    Col::Fixed(140.),
 ];
 
 pub struct LocalPanel {
@@ -220,18 +214,9 @@ impl LocalPanel {
                 cx,
             )))
             .child(header_cell(COLS[5]).child("SHIPS"))
-            .child(span(&COLS[6..8]).px_2().py_2().child(self.sort_header(
-                SortKey::Kd,
-                "K/D",
-                true,
-                cx,
-            )))
-            .child(header_cell(COLS[8]).child(self.sort_header(SortKey::Isk, "ISK", true, cx)))
-            .child(header_cell(COLS[9]).child(self.sort_header(SortKey::Ppk, "PPK", true, cx)))
-            .child(header_cell(COLS[10]).child(self.sort_header(SortKey::Cpk, "CPK", true, cx)))
-            .child(header_cell(COLS[11]).child(self.sort_header(
-                SortKey::Active,
-                "ACTIVE",
+            .child(header_cell(COLS[6]).child(self.sort_header(
+                SortKey::Danger,
+                "DANGER",
                 true,
                 cx,
             )))
@@ -340,63 +325,12 @@ impl LocalPanel {
                     None => dash().into_any_element(),
                 }),
             )
-            .child(span(&COLS[6..8]).px_2().py_1p5().child(match z {
-                Some(z) => kd_cell(("row-kd", id as u64).into(), z, 56., px(14.)),
-                None => dash().into_any_element(),
-            }))
-            .child(row_cell(COLS[8]).child(match z {
-                Some(z) => isk_cell(("row-isk", id as u64).into(), z, px(12.)),
-                None => dash().into_any_element(),
-            }))
-            .child(
-                row_cell(COLS[9])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_xs()
-                    .child(match z {
-                        Some(z) => div()
-                            .text_color(theme::color(TEXT_2))
-                            .child(format_ppk(z.points_destroyed, z.ships_destroyed))
-                            .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                row_cell(COLS[10])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_xs()
-                    .child(match z {
-                        Some(z) => div()
-                            .text_color(theme::color(TEXT_2))
-                            .child(to_fixed(z.avg_attackers, 1))
-                            .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                row_cell(COLS[11])
-                    .justify_end()
-                    .font_family(mono())
-                    .child(match z {
-                        Some(z) => {
-                            let hot = z.active_pvp_kills > 20;
-                            div()
-                                .text_sm()
-                                .map(|el| {
-                                    if hot {
-                                        el.text_color(theme::color(ORANGE))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                    } else {
-                                        el.text_color(theme::color(TEXT_2))
-                                    }
-                                })
-                                .child(z.active_pvp_kills.to_string())
-                                .into_any_element()
-                        }
-                        None => dash().into_any_element(),
-                    }),
-            );
+            .child(row_cell(COLS[6]).child(danger_cell(
+                ("row-danger", id as u64).into(),
+                pilot,
+                80.,
+                px(14.),
+            )));
 
         let main_row = pilot_context_menu(main_row, pilot, window, cx);
 

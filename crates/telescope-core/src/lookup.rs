@@ -14,7 +14,7 @@ use crate::domain::dscan::SdeIndex;
 use crate::domain::lookup::{
     BATCH_INTERVAL_MS, LookupEvent, LookupProgress, LookupTracker, MAX_BATCH_SIZE,
 };
-use crate::domain::threat::{calculate_threat_level, detect_pilot_flags};
+use crate::domain::threat::{danger_score, detect_pilot_flags, threat_level_for};
 use crate::models::{CharacterInfo, PilotFlags, PilotIntel};
 
 /// Cap on simultaneous per-pilot lookups so large locals don't burst
@@ -190,13 +190,15 @@ fn try_from_cache(cache: &Cache, character_id: Option<i64>) -> Option<PilotIntel
     // stats (the activity heatmap makes that clone expensive) on the
     // warm-cache path.
     let zkill_opt = Some(zkill_result);
-    let threat_level = calculate_threat_level(&zkill_opt);
+    let danger = zkill_opt.as_ref().and_then(danger_score).map(|s| s.total);
+    let threat_level = threat_level_for(danger).to_string();
     let flags = detect_pilot_flags(&zkill_opt);
 
     Some(PilotIntel {
         character,
         zkill: zkill_opt,
         threat_level,
+        danger,
         flags,
         error: None,
     })
@@ -233,13 +235,15 @@ async fn fetch_pilot_intel(
                     }
                 };
 
-                let threat_level = calculate_threat_level(&zkill);
+                let danger = zkill.as_ref().and_then(danger_score).map(|s| s.total);
+                let threat_level = threat_level_for(danger).to_string();
                 let flags = detect_pilot_flags(&zkill);
                 (
                     PilotIntel {
                         character,
                         zkill,
                         threat_level,
+                        danger,
                         flags,
                         error: None,
                     },
@@ -262,6 +266,7 @@ async fn fetch_pilot_intel(
                         },
                         zkill: None,
                         threat_level: "Unknown".to_string(),
+                        danger: None,
                         flags: PilotFlags::default(),
                         error: Some(e),
                     },
@@ -285,6 +290,7 @@ async fn fetch_pilot_intel(
                     },
                     zkill: None,
                     threat_level: "Unknown".to_string(),
+                    danger: None,
                     flags: PilotFlags::default(),
                     error: Some("Character not found".to_string()),
                 },

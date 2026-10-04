@@ -13,7 +13,7 @@ use gpui_kit::{
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, img, point, px, size,
 };
 use telescope_core::models::PilotIntel;
-use telescope_core::view::format::{format_ppk, ship_icon_url, to_fixed};
+use telescope_core::view::format::ship_icon_url;
 use telescope_core::view::pilot_counts::{tag_counts, threat_counts};
 use telescope_core::view::pilot_sort::{SortDirection, SortKey, SortState, sort_pilots};
 use telescope_core::view::pilot_tags::{
@@ -21,30 +21,24 @@ use telescope_core::view::pilot_tags::{
 };
 
 use crate::state::Stores;
-use crate::theme::{
-    self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, ORANGE, TEXT_1, TEXT_2, TEXT_3,
-};
-use crate::ui::{Icon, IconName, dot, mono};
-use crate::views::grid::{Col, cell, span};
+use crate::theme::{self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, TEXT_1, TEXT_2, TEXT_3};
+use crate::ui::{Icon, IconName, dot};
+use crate::views::grid::{Col, cell};
 use crate::views::local_panel::portrait;
 use crate::views::pilot_details::zkill_character_url;
-use crate::views::stats::kd_cell;
+use crate::views::stats::danger_cell;
 use crate::views::tags::{OVERLAY, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 33.;
 
-const COLS: [Col; 11] = [
+const COLS: [Col; 7] = [
     Col::Fixed(32.),
     Col::Grow(80., 1.),
-    Col::Fixed(70.),
+    Col::Grow(70., 0.6),
     Col::Fixed(45.),
     Col::Fixed(45.),
     Col::Fixed(60.),
-    Col::Fixed(30.),
-    Col::Fixed(48.),
-    Col::Fixed(32.),
-    Col::Fixed(32.),
-    Col::Fixed(32.),
+    Col::Fixed(76.),
 ];
 
 struct OverlayWindow(AnyWindowHandle);
@@ -333,14 +327,7 @@ impl OverlayView {
             .child(c(COLS[3]).child(self.header(SortKey::Corp, "CORP", false, cx)))
             .child(c(COLS[4]).child(self.header(SortKey::Alliance, "ALLY", false, cx)))
             .child(c(COLS[5]).child("SHIPS"))
-            .child(
-                span(&COLS[6..8])
-                    .px_0p5()
-                    .child(self.header(SortKey::Kd, "K/D", false, cx)),
-            )
-            .child(c(COLS[8]).child(self.header(SortKey::Ppk, "PPK", true, cx)))
-            .child(c(COLS[9]).child(self.header(SortKey::Cpk, "CPK", true, cx)))
-            .child(c(COLS[10]).child(self.header(SortKey::Active, "ACT", true, cx)))
+            .child(c(COLS[6]).child(self.header(SortKey::Danger, "DANGER", true, cx)))
     }
 
     fn render_row(&self, pilot: &PilotIntel, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
@@ -457,51 +444,12 @@ impl OverlayView {
                         None => dash().into_any_element(),
                     }),
             )
-            .child(span(&COLS[6..8]).px_0p5().child(match z {
-                Some(z) => kd_cell(("overlay-kd", id as u64).into(), z, 28., px(10.)),
-                None => dash().into_any_element(),
-            }))
-            .child(
-                c(COLS[8])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_size(px(10.))
-                    .text_color(theme::color(TEXT_2))
-                    .child(match z {
-                        Some(z) => {
-                            format_ppk(z.points_destroyed, z.ships_destroyed).into_any_element()
-                        }
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                c(COLS[9])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_size(px(10.))
-                    .text_color(theme::color(TEXT_2))
-                    .child(match z {
-                        Some(z) => to_fixed(z.avg_attackers, 1).into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                c(COLS[10])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_size(px(10.))
-                    .child(match z {
-                        Some(z) => div()
-                            .text_color(theme::color(if z.active_pvp_kills > 20 {
-                                ORANGE
-                            } else {
-                                TEXT_2
-                            }))
-                            .child(z.active_pvp_kills.to_string())
-                            .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
+            .child(c(COLS[6]).child(danger_cell(
+                ("overlay-danger", id as u64).into(),
+                pilot,
+                36.,
+                px(11.),
+            )))
             .into_any_element()
     }
 }

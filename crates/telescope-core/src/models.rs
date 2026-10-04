@@ -31,6 +31,9 @@ pub struct ZkillStats {
     /// All-time ships lost per ship group, i.e. hulls the pilot has flown.
     #[serde(default)]
     pub lost_groups: Vec<GroupLosses>,
+    /// Kills in the current and previous two calendar months.
+    #[serde(default)]
+    pub recent_kills: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -77,6 +80,9 @@ pub struct PilotIntel {
     pub character: CharacterInfo,
     pub zkill: Option<ZkillStats>,
     pub threat_level: String,
+    /// Danger score 0..=100, `None` without zKillboard history.
+    #[serde(default)]
+    pub danger: Option<u8>,
     pub flags: PilotFlags,
     pub error: Option<String>,
 }

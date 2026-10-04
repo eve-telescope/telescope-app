@@ -14,6 +14,7 @@ pub fn pilot(id: i64, name: &str) -> PilotIntel {
         },
         zkill: None,
         threat_level: "unknown".to_string(),
+        danger: None,
         flags: PilotFlags::default(),
         error: None,
     }

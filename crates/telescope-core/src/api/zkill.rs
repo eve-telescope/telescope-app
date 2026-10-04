@@ -16,7 +16,7 @@ pub struct FetchResult {
 /// Versioned so entries parsed before zKillboard moved ship stats into
 /// `topShips` are not reused.
 fn cache_key(character_id: i64) -> String {
-    format!("zkill:v3:{character_id}")
+    format!("zkill:v4:{character_id}")
 }
 
 pub fn try_get_cached(cache: &Cache, character_id: i64) -> Option<ZkillStats> {
@@ -147,6 +147,7 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
     let top_ships = parse_top_ships(json);
     let top_systems = parse_top_systems(json);
     let lost_groups = parse_lost_groups(json);
+    let recent_kills = parse_recent_kills(json, chrono::Utc::now().date_naive());
     let activity = parse_activity(json);
 
     let avg_attackers = json
@@ -170,7 +171,32 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         activity,
         top_systems,
         lost_groups,
+        recent_kills,
     }
+}
+
+/// Kills in `today`'s calendar month and the two before it, from the
+/// `months` history keyed `YYYYMM`.
+fn parse_recent_kills(json: &serde_json::Value, today: chrono::NaiveDate) -> i64 {
+    use chrono::Datelike;
+    let month_index = |year: i32, month: u32| year * 12 + month as i32 - 1;
+    let current = month_index(today.year(), today.month());
+    json.get("months")
+        .and_then(|v| v.as_object())
+        .into_iter()
+        .flat_map(|months| months.values())
+        .filter_map(|month| {
+            let year = month.get("year")?.as_i64()? as i32;
+            let number = month.get("month")?.as_i64()? as u32;
+            let age = current - month_index(year, number);
+            (0..3).contains(&age).then(|| {
+                month
+                    .get("shipsDestroyed")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0)
+            })
+        })
+        .sum()
 }
 
 /// `groups` holds all-time stats per ship group; `shipsLost` there counts
@@ -381,6 +407,26 @@ mod tests {
         let ships = parse_top_ships(&json!({ "topShips": rows }));
         assert_eq!(ships.len(), 10);
         assert_eq!(ships[0].kills, 120);
+    }
+
+    #[test]
+    fn parse_recent_kills_sums_the_last_three_months() {
+        let json = json!({
+            "months": {
+                "202610": { "year": 2026, "month": 10, "shipsDestroyed": 5 },
+                "202609": { "year": 2026, "month": 9, "shipsDestroyed": 7 },
+                "202608": { "year": 2026, "month": 8, "shipsDestroyed": 11 },
+                "202607": { "year": 2026, "month": 7, "shipsDestroyed": 100 },
+                "202512": { "year": 2025, "month": 12, "shipsLost": 3 },
+                "202612": { "year": 2026, "month": 12, "shipsDestroyed": 2 }
+            }
+        });
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 4).unwrap();
+        assert_eq!(parse_recent_kills(&json, today), 23);
+
+        // December counts across the year boundary; October is too old.
+        let february = chrono::NaiveDate::from_ymd_opt(2027, 2, 1).unwrap();
+        assert_eq!(parse_recent_kills(&json, february), 2);
     }
 
     #[test]

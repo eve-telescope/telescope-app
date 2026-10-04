@@ -25,14 +25,3 @@ pub fn cell(col: Col) -> Div {
         }
     }
 }
-
-/// Cell spanning several fixed columns.
-pub fn span(cols: &[Col]) -> Div {
-    let width = cols
-        .iter()
-        .map(|c| match c {
-            Col::Fixed(w) | Col::Grow(w, _) => *w,
-        })
-        .sum::<f32>();
-    cell(Col::Fixed(width))
-}

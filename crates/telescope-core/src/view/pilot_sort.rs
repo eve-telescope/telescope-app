@@ -178,7 +178,10 @@ fn cmp_opt_str(a: &Option<String>, b: &Option<String>) -> Ordering {
 pub fn compare_pilots(a: &PilotIntel, b: &PilotIntel, key: SortKey) -> Ordering {
     let (ca, cb) = (&a.character, &b.character);
     match key {
-        SortKey::Threat => threat_rank(&a.threat_level).cmp(&threat_rank(&b.threat_level)),
+        SortKey::Threat | SortKey::Danger => a
+            .danger
+            .cmp(&b.danger)
+            .then_with(|| threat_rank(&a.threat_level).cmp(&threat_rank(&b.threat_level))),
         SortKey::Pilot => compare_base(&ca.name, &cb.name),
         SortKey::Tags => tag_score(a).cmp(&tag_score(b)),
         SortKey::Corporation => cmp_opt_str(&ca.corporation_name, &cb.corporation_name),
@@ -198,10 +201,6 @@ pub fn compare_pilots(a: &PilotIntel, b: &PilotIntel, key: SortKey) -> Ordering 
         SortKey::Active => cmp_f64(
             zkill_f64(a, |z| z.active_pvp_kills as f64),
             zkill_f64(b, |z| z.active_pvp_kills as f64),
-        ),
-        SortKey::Danger => cmp_f64(
-            zkill_f64(a, |z| z.danger_ratio),
-            zkill_f64(b, |z| z.danger_ratio),
         ),
     }
 }
@@ -458,7 +457,25 @@ mod tests {
         assert_eq!(names(&pilots), vec!["Small", "Big"]);
         sort_pilots(&mut pilots, SortKey::Active, SortDirection::Desc);
         assert_eq!(names(&pilots), vec!["Big", "Small"]);
+    }
+
+    #[test]
+    fn threat_and_danger_sort_by_score() {
+        let scored = |name: &str, danger: Option<u8>, level: &str| {
+            let mut p = named(name);
+            p.danger = danger;
+            p.threat_level = level.into();
+            p
+        };
+        let mut pilots = vec![
+            scored("Mid", Some(55), "HIGH"),
+            scored("None", None, "Unknown"),
+            scored("Top", Some(81), "EXTREME"),
+            scored("Upper", Some(68), "HIGH"),
+        ];
+        sort_pilots(&mut pilots, SortKey::Threat, SortDirection::Desc);
+        assert_eq!(names(&pilots), vec!["Top", "Upper", "Mid", "None"]);
         sort_pilots(&mut pilots, SortKey::Danger, SortDirection::Asc);
-        assert_eq!(names(&pilots), vec!["Small", "Big"]);
+        assert_eq!(names(&pilots), vec!["None", "Mid", "Upper", "Top"]);
     }
 }
