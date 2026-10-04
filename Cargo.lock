@@ -7059,6 +7059,7 @@ dependencies = [
  "global-hotkey",
  "gpui-kit",
  "gpui-pre-reqwest-client",
+ "image",
  "interprocess",
  "log",
  "rustls",
