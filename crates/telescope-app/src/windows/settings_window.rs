@@ -12,6 +12,7 @@ use gpui_kit::{
 
 use crate::theme::{self, BG_0, BG_1, BG_HOVER, BORDER, CYAN, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName};
+use crate::views::motion;
 use crate::views::network_manager::NetworkManager;
 use crate::views::settings_panel::SettingsPanel;
 
@@ -134,7 +135,11 @@ impl Render for SettingsView {
                     .min_h_0()
                     .flex()
                     .child(self.render_nav(cx))
-                    .child(div().flex_1().min_w_0().h_full().child(content)),
+                    .child(motion::enter(
+                        ("section-in", self.section as usize),
+                        div().flex_1().min_w_0().h_full().child(content),
+                        true,
+                    )),
             )
     }
 }

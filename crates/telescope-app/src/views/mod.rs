@@ -5,6 +5,7 @@ pub mod grid;
 pub mod input_panel;
 pub mod intel_card;
 pub mod local_panel;
+pub mod motion;
 pub mod network_manager;
 pub mod notes;
 pub mod pilot_details;

@@ -2,9 +2,9 @@ use gpui_kit::component::Sizable as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
-    img, px, relative,
+    AnyElement, Context, Div, ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, div, img, px, relative,
 };
 use telescope_core::models::DscanEntry;
 use telescope_core::view::dscan_view::{
@@ -16,9 +16,12 @@ use telescope_core::view::format::ship_icon_url;
 use crate::state::Stores;
 use crate::theme::{self, BG_0, BG_1, BG_2, BG_3, BORDER, CYAN, RED, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName, section_title};
+use crate::views::motion;
 
 pub struct DscanPanel {
     show_other: bool,
+    /// Bumped for every new result so its bars grow in again.
+    generation: u64,
     selected_class: Option<String>,
     _subscription: Subscription,
 }
@@ -28,16 +31,29 @@ impl DscanPanel {
         let scan = Stores::get(cx).scan;
         Self {
             show_other: false,
+            generation: 0,
             selected_class: None,
             _subscription: cx.observe(&scan, |this, scan, cx| {
                 // A new result invalidates the class filter.
                 if scan.read(cx).dscan_loading() {
                     this.selected_class = None;
+                    this.generation += 1;
                 }
                 cx.notify()
             }),
         }
     }
+}
+
+/// A background bar behind a list row, filling `percent` of its width.
+fn bar(id: ElementId, percent: f64, color: Hsla) -> AnyElement {
+    let fraction = (percent / 100.) as f32;
+    motion::grow(
+        id,
+        div().absolute().top_0().bottom_0().left_0().bg(color),
+        true,
+        move |el, p| el.w(relative(fraction * p)),
+    )
 }
 
 fn class_icon_name(icon: ClassIcon) -> IconName {
@@ -152,6 +168,7 @@ fn empty_state() -> Div {
 
 impl Render for DscanPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let generation = self.generation;
         let scan = Stores::get(cx).scan.read(cx);
         let error = scan.dscan_error().map(str::to_string);
         let Some(result) = scan.dscan().cloned() else {
@@ -273,17 +290,14 @@ impl Render for DscanPanel {
                                     .bg(theme::color(BG_1))
                                     .px_3()
                                     .py_2()
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .bottom_0()
-                                            .left_0()
-                                            .w(relative(
-                                                (bar_width(t.count, max_type, 6.) / 100.) as f32,
-                                            ))
-                                            .bg(theme::tint(CYAN, 0x14)),
-                                    )
+                                    .child(bar(
+                                        ElementId::NamedInteger(
+                                            format!("type-bar-{}", t.type_name).into(),
+                                            generation,
+                                        ),
+                                        bar_width(t.count, max_type, 6.),
+                                        theme::tint(CYAN, 0x14),
+                                    ))
                                     .child(type_icon(t, 32.))
                                     .child(
                                         div()
@@ -458,22 +472,18 @@ impl Render for DscanPanel {
                                         };
                                         cx.notify();
                                     }))
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .bottom_0()
-                                            .left_0()
-                                            .w(relative(
-                                                (bar_width(class.count, max_class, 4.) / 100.)
-                                                    as f32,
-                                            ))
-                                            .bg(if active {
-                                                theme::tint(CYAN, 0x1a)
-                                            } else {
-                                                theme::color(BG_2)
-                                            }),
-                                    )
+                                    .child(bar(
+                                        ElementId::NamedInteger(
+                                            format!("class-bar-{}", class.name).into(),
+                                            generation,
+                                        ),
+                                        bar_width(class.count, max_class, 4.),
+                                        if active {
+                                            theme::tint(CYAN, 0x1a)
+                                        } else {
+                                            theme::color(BG_2)
+                                        },
+                                    ))
                                     .child(class_glyph(&class.name, active))
                                     .child(
                                         div()

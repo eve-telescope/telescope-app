@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Instant;
 
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -27,6 +28,7 @@ use crate::theme::{
 use crate::ui::{Icon, IconName, mono, section_title};
 use crate::views::grid::{Col, cell};
 use crate::views::intel_card::{Close, intel_panel};
+use crate::views::motion::{self, Arrivals};
 use crate::views::notes::annotation_notes_button;
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
 use crate::views::stats::danger_cell;
@@ -48,7 +50,10 @@ const COLS: [Col; 7] = [
 pub struct LocalPanel {
     sort: SortState,
     expanded: Option<u64>,
+    expanded_at: Option<Instant>,
     rows: Vec<PilotIntel>,
+    arrived: Arrivals,
+    scored: Arrivals,
     row_sizes: Rc<Vec<Size<Pixels>>>,
     scroll: VirtualListScrollHandle,
     /// The pilot whose intel panel is open, and where it was opened.
@@ -80,7 +85,10 @@ impl LocalPanel {
         let mut panel = Self {
             sort,
             expanded: None,
+            expanded_at: None,
             rows: Vec::new(),
+            arrived: Arrivals::default(),
+            scored: Arrivals::default(),
             row_sizes: Rc::new(Vec::new()),
             scroll: VirtualListScrollHandle::new(),
             menu: None,
@@ -95,10 +103,15 @@ impl LocalPanel {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let stores = Stores::get(cx);
         let filters = stores.filters.read(cx);
-        let mut rows: Vec<PilotIntel> = stores
-            .scan
-            .read(cx)
-            .pilots()
+        let pilots = stores.scan.read(cx).pilots();
+        self.arrived.sync(pilots.iter().map(PilotIntel::row_key));
+        self.scored.sync(
+            pilots
+                .iter()
+                .filter(|p| p.zkill.is_some())
+                .map(PilotIntel::row_key),
+        );
+        let mut rows: Vec<PilotIntel> = pilots
             .iter()
             .filter(|p| filters.matches(p, cx))
             .cloned()
@@ -142,6 +155,7 @@ impl LocalPanel {
         } else {
             Some(key)
         };
+        self.expanded_at = Some(Instant::now());
         self.refresh(cx);
     }
 
@@ -353,9 +367,10 @@ impl LocalPanel {
                 pilot,
                 80.,
                 px(14.),
+                self.scored.is_fresh(key),
             )));
 
-        div()
+        let row = div()
             .w_full()
             .h(px(self.row_height(pilot)))
             .flex()
@@ -364,7 +379,11 @@ impl LocalPanel {
             .border_color(theme::color(BORDER))
             .child(main_row)
             .when_some(z.filter(|_| expanded), |el, z| {
-                el.child(pilot_details(pilot, z, cx))
+                el.child(motion::enter(
+                    ("details-in", key),
+                    div().child(pilot_details(pilot, z, cx)),
+                    self.expanded_at.is_some_and(motion::is_recent),
+                ))
             })
             .when_some(pilot.error.clone(), |el, error| {
                 el.child(
@@ -379,8 +398,8 @@ impl LocalPanel {
                         .bg(theme::tint(RED, 0x0d))
                         .child(error),
                 )
-            })
-            .into_any_element()
+            });
+        motion::enter(("row-in", key), row, self.arrived.is_fresh(key))
     }
 
     fn render_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -609,7 +628,11 @@ impl LocalPanel {
                                     this.close_menu(cx);
                                 }
                             }))
-                            .child(intel_panel(pilot, close, cx)),
+                            .child(motion::enter(
+                                ("intel-in", id),
+                                div().child(intel_panel(pilot, close, cx)),
+                                true,
+                            )),
                     ),
             )
             .with_priority(1),

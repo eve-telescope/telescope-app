@@ -25,6 +25,7 @@ use crate::theme::{self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, TEXT_1,
 use crate::ui::{Icon, IconName, dot};
 use crate::views::grid::{Col, cell};
 use crate::views::local_panel::portrait;
+use crate::views::motion::{self, Arrivals};
 use crate::views::pilot_details::zkill_character_url;
 use crate::views::stats::danger_cell;
 use crate::views::tags::{OVERLAY, role_glyph, tag_strip};
@@ -48,6 +49,8 @@ impl Global for OverlayWindow {}
 pub struct OverlayView {
     sort: SortState,
     rows: Vec<PilotIntel>,
+    arrived: Arrivals,
+    scored: Arrivals,
     row_sizes: Rc<Vec<Size<Pixels>>>,
     scroll: VirtualListScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -66,6 +69,8 @@ impl OverlayView {
         let mut view = Self {
             sort: SortState::default(),
             rows: Vec::new(),
+            arrived: Arrivals::default(),
+            scored: Arrivals::default(),
             row_sizes: Rc::new(Vec::new()),
             scroll: VirtualListScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -77,10 +82,15 @@ impl OverlayView {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let stores = Stores::get(cx);
         let filters = stores.filters.read(cx);
-        let mut rows: Vec<PilotIntel> = stores
-            .scan
-            .read(cx)
-            .pilots()
+        let pilots = stores.scan.read(cx).pilots();
+        self.arrived.sync(pilots.iter().map(PilotIntel::row_key));
+        self.scored.sync(
+            pilots
+                .iter()
+                .filter(|p| p.zkill.is_some())
+                .map(PilotIntel::row_key),
+        );
+        let mut rows: Vec<PilotIntel> = pilots
             .iter()
             .filter(|p| filters.matches(p, cx))
             .cloned()
@@ -354,7 +364,7 @@ impl OverlayView {
                 .child(ticker.clone().unwrap_or_else(|| "—".into()))
         };
 
-        div()
+        let row = div()
             .id(("overlay-row", key))
             .flex()
             .w_full()
@@ -450,8 +460,9 @@ impl OverlayView {
                 pilot,
                 36.,
                 px(11.),
-            )))
-            .into_any_element()
+                self.scored.is_fresh(key),
+            )));
+        motion::enter(("overlay-row-in", key), row, self.arrived.is_fresh(key))
     }
 }
 

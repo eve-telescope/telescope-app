@@ -19,8 +19,11 @@ use crate::theme::{self, BG_1, BG_2, BG_HOVER, BORDER, CYAN, GREEN, TEXT_1, TEXT
 use crate::ui::{Icon, IconName, mono, section_title};
 use crate::views::share_button::ShareButton;
 use crate::views::threat_summary::threat_summary;
+use gpui_kit::base::{Spring, spring};
 
 const PROGRESS_DELAY: Duration = Duration::from_millis(500);
+
+const PROGRESS_SPRING: Spring = Spring::new(std::time::Duration::from_millis(450));
 
 pub struct InputPanel {
     text: Entity<TextareaState>,
@@ -265,11 +268,19 @@ impl InputPanel {
 }
 
 impl Render for InputPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let stores = Stores::get(cx);
         let scan = stores.scan.read(cx);
         let loading = scan.loading() || scan.dscan_loading();
         let progress = scan.progress().filter(|_| self.show_progress);
+        let percent = progress.as_ref().map(|p| {
+            let target = if p.total == 0 {
+                0.
+            } else {
+                p.current as f32 / p.total as f32
+            };
+            spring("lookup-progress", target, PROGRESS_SPRING, window, cx)
+        });
         let value = self.value(cx);
         let empty = value.trim().is_empty();
         let pilot_count = split_pilot_names(&value).len();
@@ -341,11 +352,6 @@ impl Render for InputPanel {
                             ),
                     )
                     .when_some(progress, |el, progress| {
-                        let percent = if progress.total == 0 {
-                            0.
-                        } else {
-                            progress.current as f32 / progress.total as f32
-                        };
                         el.child(
                             div()
                                 .mt_3()
@@ -376,7 +382,7 @@ impl Render for InputPanel {
                                         .child(
                                             div()
                                                 .h_full()
-                                                .w(relative(percent))
+                                                .w(relative(percent.unwrap_or(0.)))
                                                 .bg(theme::color(CYAN)),
                                         ),
                                 ),
