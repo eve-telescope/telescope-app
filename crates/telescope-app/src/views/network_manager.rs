@@ -27,8 +27,11 @@ use crate::theme::{self, BG_0, CYAN, GREEN, RED, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName};
 use crate::views::annotation_form;
 use crate::views::entity_search::{EntitySearch, EntitySearchEvent};
-use crate::views::intel_card::{scope_pill, target_avatar};
-use crate::views::settings_ui::{empty_row, group, page, page_body, row};
+use crate::views::grid::Col;
+use crate::views::intel_card::target_avatar;
+use crate::views::settings_ui::{
+    Column, empty_row, group, page, page_body, row, table, table_cell, table_row,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 enum DetailTab {
@@ -209,53 +212,37 @@ impl NetworkManager {
         let networks = intel.networks().to_vec();
         let name_empty = self.new_network.read(cx).value().trim().is_empty();
 
-        let mut rows: Vec<AnyElement> = networks
-            .into_iter()
-            .map(|network| {
-                let id = network.id;
-                let is_active = active == Some(id);
-                div()
-                    .id(("network", id as u64))
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hairline(0x08)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_detail(id, cx)))
-                    .child(network_icon(is_active))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::color(TEXT_1))
-                                    .child(network.name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::color(TEXT_3))
-                                    .child(annotation_count(network.entries_count.unwrap_or(0))),
+        let mut rows: Vec<AnyElement> =
+            networks
+                .into_iter()
+                .map(|network| {
+                    let id = network.id;
+                    let is_active = active == Some(id);
+                    table_row(("network", id as u64))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_detail(id, cx)))
+                        .child(
+                            table_cell(NETWORK_COLS[0])
+                                .gap_2()
+                                .child(Icon::new(IconName::Network).size_4().text_color(
+                                    theme::color(if is_active { CYAN } else { TEXT_3 }),
+                                ))
+                                .child(primary_text(network.name.clone())),
+                        )
+                        .child(table_cell(NETWORK_COLS[1]).child(secondary_text(
+                            network.entries_count.unwrap_or(0).to_string(),
+                        )))
+                        .child(table_cell(NETWORK_COLS[2]).child(active_switch(id, is_active)))
+                        .child(
+                            table_cell(NETWORK_COLS[3]).child(
+                                Icon::new(IconName::ChevronRight)
+                                    .size_4()
+                                    .text_color(theme::color(TEXT_3)),
                             ),
-                    )
-                    .child(active_switch(id, is_active))
-                    .child(
-                        Icon::new(IconName::ChevronRight)
-                            .size_4()
-                            .text_color(theme::color(TEXT_3)),
-                    )
-                    .into_any_element()
-            })
-            .collect();
+                        )
+                        .into_any_element()
+                })
+                .collect();
         if rows.is_empty() {
             rows.push(empty_row(
                 "No networks yet. Create one below to start sharing intel.",
@@ -266,7 +253,7 @@ impl NetworkManager {
             "Intel networks",
             "The active network receives your scans and supplies the annotations shown on pilots.",
         )
-        .child(group(Some("Networks"), rows))
+        .child(table(&NETWORK_COLS, rows))
         .child(group(
             Some("New network"),
             vec![
@@ -274,7 +261,6 @@ impl NetworkManager {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .px_4()
                     .py_3()
                     .child(div().flex_1().child(Input::new(&self.new_network).small()))
                     .child(
@@ -329,7 +315,6 @@ impl NetworkManager {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(network_icon(is_active))
                     .child(
                         div()
                             .flex_1()
@@ -440,8 +425,10 @@ impl NetworkManager {
         };
 
         let list = match self.tab {
-            DetailTab::Annotations => group(None, annotation_rows(network_id, annotations)),
-            DetailTab::Members => group(None, member_rows(network_id, &network.accesses)),
+            DetailTab::Annotations => {
+                table(&ANNOTATION_COLS, annotation_rows(network_id, annotations))
+            }
+            DetailTab::Members => table(&MEMBER_COLS, member_rows(network_id, &network.accesses)),
             DetailTab::Scans => self.scans_group(cx),
         };
 
@@ -481,8 +468,8 @@ impl NetworkManager {
 
     fn scans_group(&self, cx: &mut Context<Self>) -> gpui_kit::Div {
         let Some(page) = &self.scans else {
-            return group(
-                None,
+            return table(
+                &SCAN_COLS,
                 vec![empty_row(if self.scans_loading {
                     "Loading scans…"
                 } else {
@@ -496,45 +483,46 @@ impl NetworkManager {
             rows.push(empty_row("No scans shared to this network yet"));
         }
         let (current, last) = (page.current_page, page.last_page);
-        if last > 1 {
-            rows.push(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px_4()
-                    .py_2()
-                    .text_xs()
-                    .text_color(theme::color(TEXT_3))
-                    .child(
-                        Button::new("scans-prev")
-                            .ghost()
-                            .small()
-                            .icon(IconName::ChevronLeft)
-                            .label("Newer")
-                            .disabled(current <= 1 || self.scans_loading)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.scans_page -= 1;
-                                this.load_scans(cx);
-                            })),
-                    )
-                    .child(format!("Page {current} of {last}"))
-                    .child(
-                        Button::new("scans-next")
-                            .ghost()
-                            .small()
-                            .label("Older")
-                            .icon(IconName::ChevronRight)
-                            .disabled(current >= last || self.scans_loading)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.scans_page += 1;
-                                this.load_scans(cx);
-                            })),
-                    )
-                    .into_any_element(),
-            );
-        }
-        group(None, rows)
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(table(&SCAN_COLS, rows))
+            .when(last > 1, |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .text_xs()
+                        .text_color(theme::color(TEXT_3))
+                        .child(
+                            Button::new("scans-prev")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ChevronLeft)
+                                .label("Newer")
+                                .disabled(current <= 1 || self.scans_loading)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.scans_page -= 1;
+                                    this.load_scans(cx);
+                                })),
+                        )
+                        .child(format!("Page {current} of {last}"))
+                        .child(
+                            Button::new("scans-next")
+                                .ghost()
+                                .small()
+                                .label("Older")
+                                .icon(IconName::ChevronRight)
+                                .disabled(current >= last || self.scans_loading)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.scans_page += 1;
+                                    this.load_scans(cx);
+                                })),
+                        ),
+                )
+            })
     }
 }
 
@@ -589,6 +577,39 @@ impl Render for NetworkManager {
     }
 }
 
+const NETWORK_COLS: [Column; 4] = [
+    Column::new("Name", Col::Grow(240., 1.)),
+    Column::new("Annotations", Col::Fixed(110.)).right(),
+    Column::new("Active", Col::Fixed(80.)).right(),
+    Column::new("", Col::Fixed(36.)).right(),
+];
+
+const ANNOTATION_COLS: [Column; 6] = [
+    Column::new("Target", Col::Grow(170., 1.2)),
+    Column::new("Scope", Col::Fixed(100.)),
+    Column::new("Tags", Col::Grow(150., 1.1)),
+    Column::new("Note", Col::Grow(170., 1.4)),
+    Column::new("Added by", Col::Fixed(130.)),
+    Column::new("", Col::Fixed(64.)).right(),
+];
+
+const SCAN_COLS: [Column; 6] = [
+    Column::new("Type", Col::Fixed(90.)),
+    Column::new("Shared by", Col::Grow(180., 1.2)),
+    Column::new("Entries", Col::Fixed(80.)).right(),
+    Column::new("System", Col::Grow(120., 1.)),
+    Column::new("Shared", Col::Fixed(100.)).right(),
+    Column::new("", Col::Fixed(36.)).right(),
+];
+
+const MEMBER_COLS: [Column; 5] = [
+    Column::new("Name", Col::Grow(180., 1.2)),
+    Column::new("Type", Col::Fixed(110.)),
+    Column::new("Affiliation", Col::Grow(200., 1.4)),
+    Column::new("Permission", Col::Fixed(110.)),
+    Column::new("", Col::Fixed(40.)).right(),
+];
+
 fn annotation_count(count: i64) -> String {
     match count {
         1 => "1 annotation".to_string(),
@@ -596,24 +617,25 @@ fn annotation_count(count: i64) -> String {
     }
 }
 
-fn network_icon(active: bool) -> impl IntoElement {
+fn primary_text(text: impl Into<SharedString>) -> impl IntoElement {
     div()
-        .size(px(32.))
-        .flex_none()
-        .rounded(px(8.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(if active {
-            theme::tint(CYAN, 0x1f)
-        } else {
-            theme::hairline(0x0a)
-        })
-        .child(
-            Icon::new(IconName::Network)
-                .size_4()
-                .text_color(theme::color(if active { CYAN } else { TEXT_3 })),
-        )
+        .truncate()
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::color(TEXT_1))
+        .child(text.into())
+}
+
+fn secondary_text(text: impl Into<SharedString>) -> impl IntoElement {
+    div()
+        .truncate()
+        .text_xs()
+        .text_color(theme::color(TEXT_2))
+        .child(text.into())
+}
+
+fn muted_dash() -> impl IntoElement {
+    div().text_xs().text_color(theme::color(TEXT_3)).child("—")
 }
 
 /// Makes this network the active one, or clears it.
@@ -662,6 +684,15 @@ fn hover_action(
         .child(Icon::new(icon).size_3p5())
 }
 
+fn scope_label(scope: EntityType) -> impl IntoElement {
+    let label = match scope {
+        EntityType::Character => "Character",
+        EntityType::Corporation => "Corporation",
+        EntityType::Alliance => "Alliance",
+    };
+    secondary_text(label)
+}
+
 fn annotation_rows(network_id: i64, annotations: Vec<Annotation>) -> Vec<AnyElement> {
     if annotations.is_empty() {
         return vec![empty_row(
@@ -678,94 +709,76 @@ fn annotation_rows(network_id: i64, annotations: Vec<Annotation>) -> Vec<AnyElem
             let id = annotation.id;
             let group: SharedString = format!("annotation-{id}").into();
             let edit = annotation.clone();
-            div()
+            let note = annotation.note.clone().filter(|n| !n.trim().is_empty());
+            table_row(("annotation", id as u64))
                 .group(group.clone())
-                .flex()
-                .items_start()
-                .gap_3()
-                .px_4()
-                .py_3()
-                .hover(|s| s.bg(theme::hairline(0x05)))
-                .child(target_avatar(&Target::of(&annotation), 28.))
                 .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
+                    table_cell(ANNOTATION_COLS[0])
+                        .gap_2()
+                        .child(target_avatar(&Target::of(&annotation), 22.))
+                        .child(primary_text(annotation.target_name.clone())),
+                )
+                .child(table_cell(ANNOTATION_COLS[1]).child(scope_label(annotation.target_type)))
+                .child(
+                    table_cell(ANNOTATION_COLS[2])
                         .gap_1()
-                        .child(
+                        .children(annotation.tags.iter().map(|tag| {
                             div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::color(TEXT_1))
-                                        .child(annotation.target_name.clone()),
+                                .flex_none()
+                                .px_1p5()
+                                .rounded_sm()
+                                .text_size(px(10.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .bg(theme::hex_tint(&color, 0x2e, TEXT_3))
+                                .text_color(theme::hex_or(&color, TEXT_2))
+                                .child(tag.clone())
+                        })),
+                )
+                .child(table_cell(ANNOTATION_COLS[3]).child(match note {
+                    Some(note) => secondary_text(note).into_any_element(),
+                    None => muted_dash().into_any_element(),
+                }))
+                .child(
+                    table_cell(ANNOTATION_COLS[4]).child(match annotation.created_by.as_ref() {
+                        Some(author) => {
+                            secondary_text(author.character_name.clone()).into_any_element()
+                        }
+                        None => muted_dash().into_any_element(),
+                    }),
+                )
+                .child(
+                    table_cell(ANNOTATION_COLS[5])
+                        .gap_0p5()
+                        .child(
+                            hover_action(
+                                ("edit-annotation", id as u64),
+                                IconName::Pencil,
+                                "Edit",
+                                group.clone(),
+                            )
+                            .on_click(move |_, window, cx| {
+                                annotation_form::open(
+                                    network_id,
+                                    Some(Target::of(&edit)),
+                                    Some(&edit),
+                                    window,
+                                    cx,
                                 )
-                                .child(scope_pill(annotation.target_type)),
+                            }),
                         )
-                        .when(!annotation.tags.is_empty(), |el| {
-                            el.child(div().flex().flex_wrap().gap_1().children(
-                                annotation.tags.iter().map(|tag| {
-                                    div()
-                                        .px_2()
-                                        .py(px(2.))
-                                        .rounded_full()
-                                        .text_size(px(10.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .bg(theme::hex_tint(&color, 0x2e, TEXT_3))
-                                        .text_color(theme::hex_or(&color, TEXT_2))
-                                        .child(tag.clone())
-                                }),
-                            ))
-                        })
-                        .when_some(
-                            annotation.note.clone().filter(|n| !n.trim().is_empty()),
-                            |el, note| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme::color(TEXT_2))
-                                        .line_clamp(2)
-                                        .child(note),
-                                )
-                            },
+                        .child(
+                            hover_action(
+                                ("delete-annotation", id as u64),
+                                IconName::Trash,
+                                "Delete",
+                                group,
+                            )
+                            .on_click(move |_, _, cx| {
+                                Stores::get(cx)
+                                    .intel
+                                    .update(cx, |intel, cx| intel.remove_entry(network_id, id, cx))
+                            }),
                         ),
-                )
-                .child(
-                    hover_action(
-                        ("edit-annotation", id as u64),
-                        IconName::Pencil,
-                        "Edit",
-                        group.clone(),
-                    )
-                    .on_click(move |_, window, cx| {
-                        annotation_form::open(
-                            network_id,
-                            Some(Target::of(&edit)),
-                            Some(&edit),
-                            window,
-                            cx,
-                        )
-                    }),
-                )
-                .child(
-                    hover_action(
-                        ("delete-annotation", id as u64),
-                        IconName::Trash,
-                        "Delete",
-                        group,
-                    )
-                    .on_click(move |_, _, cx| {
-                        Stores::get(cx)
-                            .intel
-                            .update(cx, |intel, cx| intel.remove_entry(network_id, id, cx))
-                    }),
                 )
                 .into_any_element()
         })
@@ -783,7 +796,7 @@ fn member_rows(network_id: i64, accesses: &[NetworkAccess]) -> Vec<AnyElement> {
             let name = entity
                 .map(|e| e.name.clone())
                 .unwrap_or_else(|| access.accessible_id.to_string());
-            let detail = entity
+            let affiliation = entity
                 .map(|e| {
                     [
                         e.ticker.as_ref().map(|t| format!("[{t}]")),
@@ -813,60 +826,36 @@ fn member_rows(network_id: i64, accesses: &[NetworkAccess]) -> Vec<AnyElement> {
             let access_id = access.id;
             let group: SharedString = format!("member-{access_id}").into();
             let removable = can_remove_access(access);
-            div()
+            table_row(("member", access_id as u64))
                 .group(group.clone())
-                .flex()
-                .items_center()
-                .gap_3()
-                .px_4()
-                .py_2p5()
-                .hover(|s| s.bg(theme::hairline(0x05)))
-                .child(target_avatar(&target, 28.))
                 .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::color(TEXT_1))
-                                        .child(name),
-                                )
-                                .when_some(scope, |el, scope| el.child(scope_pill(scope))),
-                        )
-                        .when_some(detail, |el, detail| {
-                            el.child(
-                                div()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(theme::color(TEXT_3))
-                                    .child(detail),
-                            )
-                        }),
+                    table_cell(MEMBER_COLS[0])
+                        .gap_2()
+                        .child(target_avatar(&target, 22.))
+                        .child(primary_text(name)),
                 )
+                .child(table_cell(MEMBER_COLS[1]).child(match scope {
+                    Some(scope) => scope_label(scope).into_any_element(),
+                    None => muted_dash().into_any_element(),
+                }))
+                .child(table_cell(MEMBER_COLS[2]).child(match affiliation {
+                    Some(affiliation) => secondary_text(affiliation).into_any_element(),
+                    None => muted_dash().into_any_element(),
+                }))
                 .child(
-                    div()
-                        .px_2()
-                        .py(px(2.))
-                        .rounded_full()
-                        .text_size(px(10.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .bg(if access.is_owner {
-                            theme::tint(CYAN, 0x1f)
-                        } else {
-                            theme::hairline(0x0f)
-                        })
-                        .text_color(theme::color(if access.is_owner { CYAN } else { TEXT_2 }))
-                        .child(access_permission_label(access).to_string()),
+                    table_cell(MEMBER_COLS[3]).child(
+                        div()
+                            .text_xs()
+                            .font_weight(if access.is_owner {
+                                FontWeight::SEMIBOLD
+                            } else {
+                                FontWeight::NORMAL
+                            })
+                            .text_color(theme::color(if access.is_owner { CYAN } else { TEXT_2 }))
+                            .child(access_permission_label(access).to_string()),
+                    ),
                 )
-                .when(removable, |el| {
+                .child(table_cell(MEMBER_COLS[4]).when(removable, |el| {
                     el.child(
                         hover_action(
                             ("remove-access", access_id as u64),
@@ -880,7 +869,7 @@ fn member_rows(network_id: i64, accesses: &[NetworkAccess]) -> Vec<AnyElement> {
                             })
                         }),
                     )
-                })
+                }))
                 .into_any_element()
         })
         .collect()
@@ -895,15 +884,8 @@ fn scan_row(scan: &NetworkScan, now: chrono::DateTime<Utc>) -> AnyElement {
         .filter(|l| !l.trim().is_empty())
         .count();
     let accent = if dscan { CYAN } else { GREEN };
-    div()
-        .id(("history-scan", scan.id as u64))
-        .flex()
-        .items_center()
-        .gap_3()
-        .px_4()
-        .py_2p5()
+    table_row(("history-scan", scan.id as u64))
         .cursor_pointer()
-        .hover(|s| s.bg(theme::hairline(0x08)))
         .on_click(move |_, _, cx| {
             Stores::get(cx).scan.update(cx, |scan, cx| {
                 scan.load(&raw, cx);
@@ -911,14 +893,8 @@ fn scan_row(scan: &NetworkScan, now: chrono::DateTime<Utc>) -> AnyElement {
             crate::windows::main_window::focus(cx);
         })
         .child(
-            div()
-                .size(px(28.))
-                .flex_none()
-                .rounded(px(7.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme::tint(accent, 0x1f))
+            table_cell(SCAN_COLS[0])
+                .gap_1p5()
                 .child(
                     Icon::new(if dscan {
                         IconName::Radar
@@ -927,53 +903,33 @@ fn scan_row(scan: &NetworkScan, now: chrono::DateTime<Utc>) -> AnyElement {
                     })
                     .size_3p5()
                     .text_color(theme::color(accent)),
-                ),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .truncate()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::color(TEXT_1))
-                        .child(
-                            scan.submitted_by
-                                .as_ref()
-                                .map(|s| s.character_name.clone())
-                                .unwrap_or_else(|| "Unknown".into()),
-                        ),
                 )
-                .child(
-                    div().text_xs().text_color(theme::color(TEXT_3)).child(
-                        [
-                            Some(if dscan {
-                                "D-scan".to_string()
-                            } else {
-                                "Local".to_string()
-                            }),
-                            Some(format!("{entries} entries")),
-                            scan.solar_system.clone(),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<_>>()
-                        .join(" · "),
-                    ),
-                ),
+                .child(secondary_text(if dscan { "D-scan" } else { "Local" })),
         )
         .child(
-            div()
-                .text_xs()
-                .text_color(theme::color(TEXT_3))
-                .child(relative_time(&scan.created_at, now).unwrap_or_default()),
+            table_cell(SCAN_COLS[1]).child(primary_text(
+                scan.submitted_by
+                    .as_ref()
+                    .map(|s| s.character_name.clone())
+                    .unwrap_or_else(|| "Unknown".into()),
+            )),
         )
+        .child(table_cell(SCAN_COLS[2]).child(secondary_text(entries.to_string())))
         .child(
-            Icon::new(IconName::ChevronRight)
-                .size_3p5()
-                .text_color(theme::color(TEXT_3)),
+            table_cell(SCAN_COLS[3]).child(match scan.solar_system.clone() {
+                Some(system) => secondary_text(system).into_any_element(),
+                None => muted_dash().into_any_element(),
+            }),
+        )
+        .child(table_cell(SCAN_COLS[4]).child(secondary_text(
+            relative_time(&scan.created_at, now).unwrap_or_default(),
+        )))
+        .child(
+            table_cell(SCAN_COLS[5]).child(
+                Icon::new(IconName::ChevronRight)
+                    .size_3p5()
+                    .text_color(theme::color(TEXT_3)),
+            ),
         )
         .into_any_element()
 }
