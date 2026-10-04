@@ -11,9 +11,9 @@ use telescope_core::view::annotations::{
     Annotation, DEFAULT_ANNOTATION_COLOR, ResolvedAnnotation, Target,
 };
 
-use crate::theme::{self, BG_1, BG_3, BORDER, ORANGE, TEXT_1, TEXT_2, TEXT_3};
+use crate::theme::{self, BG_3, ORANGE, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName};
-use crate::views::intel_card::{scope_pill, target_avatar};
+use crate::views::intel_card::{divider, scope_pill, target_avatar};
 
 fn note_card(annotation: &Annotation) -> impl IntoElement {
     let color = annotation
@@ -24,11 +24,7 @@ fn note_card(annotation: &Annotation) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap_1p5()
-        .p_2p5()
-        .rounded_md()
-        .bg(theme::color(BG_1))
-        .border_1()
-        .border_color(theme::color(BORDER))
+        .py_2()
         .child(
             div()
                 .flex()
@@ -111,8 +107,11 @@ pub fn annotation_notes_button(
                     .w(px(300.))
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .children(notes.iter().map(note_card)),
+                    .children(notes.iter().enumerate().flat_map(|(i, note)| {
+                        let line = (i > 0).then(|| divider().into_any_element());
+                        line.into_iter()
+                            .chain(std::iter::once(note_card(note).into_any_element()))
+                    })),
             )
             .into_any_element(),
     )

@@ -12,7 +12,7 @@ use gpui_kit::{
 use telescope_core::view::annotations::{Annotation, EntityType, Target, normalize_annotation_tag};
 
 use crate::state::Stores;
-use crate::theme::{self, BG_1, BORDER, TEXT_1, TEXT_3};
+use crate::theme::{self, BORDER, TEXT_1, TEXT_3};
 use crate::ui::IconName;
 use crate::views::entity_search::{EntitySearch, EntitySearchEvent};
 use crate::views::intel_card::{scope_pill, tag_options, target_avatar, toggle_chip};
@@ -131,10 +131,8 @@ impl AnnotationForm {
                 .flex()
                 .items_center()
                 .gap_2p5()
-                .p_2p5()
-                .rounded_md()
-                .bg(theme::color(BG_1))
-                .border_1()
+                .pb_3()
+                .border_b_1()
                 .border_color(theme::color(BORDER))
                 .child(target_avatar(target, 32.))
                 .child(

@@ -1,10 +1,9 @@
-//! The right-click intel panel for a pilot: one card per character,
-//! corporation and alliance, with clickable tag chips and the note.
+//! The right-click intel panel for a pilot: a flat surface with a header and
+//! one section per character, corporation and alliance, each with clickable
+//! tag chips and the note.
 
 use std::rc::Rc;
 
-use gpui_kit::component::Sizable as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Div, ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement,
@@ -19,35 +18,33 @@ use telescope_core::view::annotations::{
 use telescope_core::view::network::portrait_url;
 
 use crate::state::Stores;
-use crate::theme::{self, BG_1, BG_2, BG_3, BORDER, TEXT_1, TEXT_2, TEXT_3};
+use crate::theme::{self, BG_3, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName, mono};
 use crate::views::annotation_form;
-use crate::views::local_panel::threat_badge;
 
-/// Border for surfaces that float above the table.
-const RAISED_BORDER: u32 = 0x3a3a46;
+/// The panel surface sits a step above the table.
+const SURFACE: u32 = 0x18181d;
+const HAIRLINE: u32 = 0xffffff;
 
 pub type Close = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Label and accent for each annotation scope.
 pub fn scope_style(scope: EntityType) -> (&'static str, u32) {
     match scope {
-        EntityType::Character => ("CHAR", 0x38bdf8),
-        EntityType::Corporation => ("CORP", 0xa78bfa),
-        EntityType::Alliance => ("ALLY", 0xfbbf24),
+        EntityType::Character => ("CHARACTER", 0x38bdf8),
+        EntityType::Corporation => ("CORPORATION", 0xa78bfa),
+        EntityType::Alliance => ("ALLIANCE", 0xfbbf24),
     }
 }
 
+/// The scope as small colored caps.
 pub fn scope_pill(scope: EntityType) -> Div {
     let (label, color) = scope_style(scope);
     div()
         .flex_none()
-        .px_1p5()
-        .rounded_sm()
-        .bg(theme::tint(color, 0x26))
-        .text_color(theme::color(color))
         .text_size(px(9.))
         .font_weight(FontWeight::BOLD)
+        .text_color(theme::color(color).opacity(0.85))
         .child(label)
 }
 
@@ -56,41 +53,38 @@ pub fn target_avatar(target: &Target, size: f32) -> AnyElement {
         Some(url) => img(url)
             .size(px(size))
             .flex_none()
-            .rounded_md()
+            .rounded(px(size / 4.))
             .bg(theme::color(BG_3))
             .into_any_element(),
         None => div()
             .size(px(size))
             .flex_none()
-            .rounded_md()
+            .rounded(px(size / 4.))
             .bg(theme::color(BG_3))
             .into_any_element(),
     }
 }
 
-/// A tag chip that toggles: filled with the tag color when applied,
-/// outlined otherwise.
+/// A tag that toggles: tinted in its color when applied, a faint neutral
+/// fill otherwise.
 pub fn toggle_chip(id: ElementId, tag: &str, color: &str, active: bool) -> Stateful<Div> {
     let accent: Hsla = theme::hex_or(color, TEXT_2);
     div()
         .id(id)
         .flex_none()
         .px_2()
-        .py_0p5()
+        .py(px(3.))
         .rounded_full()
-        .border_1()
         .text_size(px(10.))
-        .font_weight(FontWeight::BOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
         .map(|el| {
             if active {
-                el.bg(theme::hex_tint(color, 0x33, TEXT_3))
-                    .border_color(accent)
-                    .text_color(accent)
+                el.bg(accent.opacity(0.18)).text_color(accent)
             } else {
-                el.border_color(theme::color(BORDER))
+                el.bg(theme::tint(HAIRLINE, 0x0a))
                     .text_color(theme::color(TEXT_3))
-                    .hover(move |s| s.border_color(accent.opacity(0.6)).text_color(accent))
+                    .hover(move |s| s.bg(accent.opacity(0.1)).text_color(accent))
             }
         })
         .child(tag.to_string())
@@ -112,7 +106,11 @@ pub fn tag_options(applied: &[String], customs: &[(String, String)]) -> Vec<(Str
     options
 }
 
-fn target_card(
+pub fn divider() -> Div {
+    div().h(px(1.)).flex_none().bg(theme::tint(HAIRLINE, 0x0f))
+}
+
+fn target_section(
     network_id: i64,
     target: Target,
     existing: Option<Annotation>,
@@ -128,41 +126,55 @@ fn target_card(
         .and_then(|a| a.note.clone())
         .filter(|n| !n.trim().is_empty());
     let scope = scope_style(target.entity_type).0;
+    let group: SharedString = format!("section-{scope}").into();
 
     div()
+        .group(group.clone())
         .flex()
         .flex_col()
         .gap_2()
-        .p_2p5()
-        .rounded_md()
-        .bg(theme::color(BG_1))
-        .border_1()
-        .border_color(theme::color(BORDER))
+        .px_3()
+        .py_2p5()
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(target_avatar(&target, 24.))
+                .child(target_avatar(&target, 18.))
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .truncate()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::color(TEXT_1))
-                        .child(target.name.clone()),
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .truncate()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::color(TEXT_1))
+                                .child(target.name.clone()),
+                        )
+                        .child(scope_pill(target.entity_type)),
                 )
-                .child(scope_pill(target.entity_type))
                 .child({
                     let target = target.clone();
                     let existing = existing.clone();
-                    Button::new(SharedString::from(format!("note-{scope}")))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Pencil)
-                        .tooltip("Edit tags and note")
+                    div()
+                        .id(SharedString::from(format!("edit-{scope}")))
+                        .flex_none()
+                        .p_1()
+                        .rounded_sm()
+                        .text_color(theme::color(TEXT_3))
+                        .invisible()
+                        .group_hover(group, |s| s.visible())
+                        .cursor_pointer()
+                        .hover(|s| {
+                            s.bg(theme::tint(HAIRLINE, 0x14))
+                                .text_color(theme::color(TEXT_1))
+                        })
+                        .child(Icon::new(IconName::Pencil).size_3())
                         .on_click(move |_, window, cx| {
                             close(window, cx);
                             annotation_form::open(
@@ -200,17 +212,13 @@ fn target_card(
         .when_some(note, |el, note| {
             el.child(
                 div()
-                    .flex()
-                    .items_center()
-                    .gap_1p5()
+                    .pl_2()
+                    .border_l_2()
+                    .border_color(theme::tint(HAIRLINE, 0x1f))
                     .text_xs()
                     .text_color(theme::color(TEXT_2))
-                    .child(
-                        Icon::new(IconName::StickyNote)
-                            .size_3()
-                            .text_color(theme::color(TEXT_3)),
-                    )
-                    .child(div().flex_1().min_w_0().truncate().child(note)),
+                    .line_clamp(2)
+                    .child(note),
             )
         })
 }
@@ -230,18 +238,21 @@ pub fn intel_panel(pilot: &PilotIntel, close: Close, cx: &App) -> impl IntoEleme
     .flatten()
     .collect::<Vec<_>>()
     .join(" ");
+    let threat = theme::threat_color(&pilot.threat_level);
 
     let header = div()
         .flex()
         .items_center()
         .gap_2p5()
+        .px_3()
+        .py_3()
         .child(target_avatar(
             &Target {
                 entity_type: EntityType::Character,
                 id: c.id,
                 name: c.name.clone(),
             },
-            40.,
+            36.,
         ))
         .child(
             div()
@@ -269,46 +280,58 @@ pub fn intel_panel(pilot: &PilotIntel, close: Close, cx: &App) -> impl IntoEleme
                 .flex()
                 .flex_col()
                 .items_end()
-                .gap_0p5()
-                .child(threat_badge(&pilot.threat_level))
+                .child(
+                    div()
+                        .text_size(px(9.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(threat)
+                        .child(pilot.threat_level.to_uppercase()),
+                )
                 .when_some(pilot.danger, |el, danger| {
                     el.child(
                         div()
                             .font_family(mono())
-                            .text_xs()
-                            .text_color(theme::threat_color(&pilot.threat_level))
-                            .child(format!("{danger} danger")),
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(threat)
+                            .child(danger.to_string()),
                     )
                 }),
         );
 
     let body = match network {
         None => div()
-            .p_3()
-            .rounded_md()
-            .bg(theme::color(BG_1))
-            .border_1()
-            .border_color(theme::color(BORDER))
+            .px_3()
+            .py_3()
             .text_xs()
             .text_color(theme::color(TEXT_2))
             .child("Connect to an intel network in the Network tab to tag pilots.")
             .into_any_element(),
         Some((network_id, name)) => {
             let customs = intel.network_custom_tags(network_id);
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .children(Target::for_pilot(pilot).into_iter().map(|target| {
-                    let existing =
-                        find_annotation(intel.annotation_index(), network_id, &target).cloned();
-                    target_card(network_id, target, existing, &customs, close.clone())
-                }))
+            let mut body = div().flex().flex_col();
+            for (i, target) in Target::for_pilot(pilot).into_iter().enumerate() {
+                if i > 0 {
+                    body = body.child(divider().mx_3());
+                }
+                let existing =
+                    find_annotation(intel.annotation_index(), network_id, &target).cloned();
+                body = body.child(target_section(
+                    network_id,
+                    target,
+                    existing,
+                    &customs,
+                    close.clone(),
+                ));
+            }
+            body.child(divider())
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap_1()
+                        .gap_1p5()
+                        .px_3()
+                        .py_2()
                         .text_size(px(10.))
                         .text_color(theme::color(TEXT_3))
                         .child(Icon::new(IconName::Network).size_3())
@@ -320,17 +343,17 @@ pub fn intel_panel(pilot: &PilotIntel, close: Close, cx: &App) -> impl IntoEleme
 
     div()
         .id("intel-panel")
-        .w(px(380.))
+        .w(px(340.))
         .flex()
         .flex_col()
-        .gap_3()
-        .p_3()
-        .rounded_lg()
-        .bg(theme::color(BG_2))
+        .overflow_hidden()
+        .rounded(px(10.))
+        .bg(theme::color(SURFACE))
         .border_1()
-        .border_color(theme::color(RAISED_BORDER))
+        .border_color(theme::tint(HAIRLINE, 0x14))
         .shadow_lg()
         .occlude()
         .child(header)
+        .child(divider())
         .child(body)
 }
