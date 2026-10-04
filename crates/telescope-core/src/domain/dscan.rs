@@ -30,6 +30,10 @@ impl SdeIndex {
         }
     }
 
+    pub fn get(&self, type_id: i64) -> Option<&ScanTypeIndexEntry> {
+        self.by_type_id.get(&type_id)
+    }
+
     /// Classify a scan row by type ID, falling back to a name lookup.
     fn classify(&self, type_id: Option<i64>, type_name: &str) -> Option<&ScanTypeIndexEntry> {
         type_id.and_then(|id| self.by_type_id.get(&id)).or_else(|| {

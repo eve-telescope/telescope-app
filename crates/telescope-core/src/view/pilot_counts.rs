@@ -133,7 +133,7 @@ mod tests {
     use super::*;
     use crate::view::annotations::{Annotation, EntityType, ResolvedAnnotation};
     use crate::view::pilot_tags::pilot_tags;
-    use crate::view::test_support::{affiliated_pilot, with_flags, with_threat};
+    use crate::view::test_support::{affiliated_pilot, flying_recon, with_flags, with_threat};
 
     fn p(id: i64) -> PilotIntel {
         affiliated_pilot(id, "Pilot")
@@ -189,10 +189,7 @@ mod tests {
     fn counts_flag_tags() {
         let pilots = [
             with_flags(p(1), |f| f.is_cyno = true),
-            with_flags(p(2), |f| {
-                f.is_cyno = true;
-                f.is_recon = true;
-            }),
+            with_flags(flying_recon(p(2)), |f| f.is_cyno = true),
             p(3),
         ];
         let counts = tag_counts(&pilots, flag_tags);
@@ -230,8 +227,8 @@ mod tests {
     fn tag_ties_keep_first_seen_order() {
         let pilots = [
             with_flags(p(1), |f| f.is_solo = true),
-            with_flags(p(2), |f| f.is_recon = true),
-            with_flags(p(3), |f| f.is_recon = true),
+            flying_recon(p(2)),
+            flying_recon(p(3)),
         ];
         let tags: Vec<_> = tag_counts(&pilots, flag_tags)
             .into_iter()

@@ -1,10 +1,10 @@
-//! Tag chips shown on a pilot row: zKillboard flags first, then intel
+//! Tag chips shown on a pilot row: roles from zKillboard first, then intel
 //! annotation tags, deduplicated by text.
 
 use std::collections::HashSet;
 
 use super::annotations::{AnnotationIndex, ResolvedAnnotation, resolve_pilot_annotations};
-use super::flags::{self, flag_labels};
+use super::roles::pilot_roles;
 use crate::models::PilotIntel;
 
 /// Fallback chip colors for tags without an explicit color.
@@ -13,21 +13,17 @@ pub const DEFAULT_TAG_TEXT_COLOR: &str = "#CBD5E1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PilotTag {
-    /// Stable element id: `flag:{label}` or `{scope}:{annotation id}:{tag}`.
+    /// Stable element id: `role:{label}` or `{scope}:{annotation id}:{tag}`.
     pub key: String,
     pub text: String,
     pub color: Option<String>,
+    /// Bracket icon stem for role tags drawn as a hull icon.
+    pub icon: Option<&'static str>,
 }
 
-pub fn flag_color(label: &str) -> Option<&'static str> {
-    match label {
-        flags::SUPER => Some("#F43F5E"),
-        flags::CAPITAL => Some("#F59E0B"),
-        flags::BLACK_OPS => Some("#6366F1"),
-        flags::RECON => Some("#14B8A6"),
-        flags::CYNO => Some("#A855F7"),
-        flags::SOLO => Some("#38BDF8"),
-        _ => None,
+impl PilotTag {
+    pub fn is_role(&self) -> bool {
+        self.key.starts_with("role:")
     }
 }
 
@@ -35,12 +31,13 @@ pub fn pilot_tags(pilot: &PilotIntel, resolved: &[ResolvedAnnotation<'_>]) -> Ve
     let mut tags = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
 
-    for flag in flag_labels(&pilot.flags) {
-        seen.insert(flag);
+    for role in pilot_roles(pilot) {
+        seen.insert(role.label());
         tags.push(PilotTag {
-            key: format!("flag:{flag}"),
-            text: flag.to_string(),
-            color: flag_color(flag).map(str::to_string),
+            key: format!("role:{}", role.label()),
+            text: role.label().to_string(),
+            color: Some(role.color().to_string()),
+            icon: role.icon(),
         });
     }
 
@@ -51,6 +48,7 @@ pub fn pilot_tags(pilot: &PilotIntel, resolved: &[ResolvedAnnotation<'_>]) -> Ve
                     key: format!("{}:{tag}", matched.key),
                     text: tag.clone(),
                     color: matched.annotation.color.clone(),
+                    icon: None,
                 });
             }
         }
@@ -113,21 +111,14 @@ mod tests {
     }
 
     #[test]
-    fn returns_flag_tags_with_colors() {
-        let p = with_flags(pilot(1, "p"), |f| {
-            f.is_cyno = true;
-            f.is_recon = true;
-        });
+    fn returns_role_tags_with_colors_and_icons() {
+        let p = with_flags(pilot(1, "p"), |f| f.is_cyno = true);
         let tags = pilot_tags(&p, &[]);
-        assert_eq!(texts(&tags), vec!["RECON", "CYNO"]);
-        assert_eq!(tags[0].key, "flag:RECON");
-        assert_eq!(tags[0].color.as_deref(), Some("#14B8A6"));
-    }
-
-    #[test]
-    fn includes_super_flag() {
-        let p = with_flags(pilot(1, "p"), |f| f.is_super = true);
-        assert!(texts(&pilot_tags(&p, &[])).contains(&"SUPER"));
+        assert_eq!(texts(&tags), vec!["CYNO"]);
+        assert_eq!(tags[0].key, "role:CYNO");
+        assert_eq!(tags[0].color.as_deref(), Some("#A855F7"));
+        assert_eq!(tags[0].icon, Some("cynosuralfield"));
+        assert!(tags[0].is_role());
     }
 
     #[test]
@@ -145,19 +136,19 @@ mod tests {
         let p = with_flags(pilot(1, "p"), |f| f.is_cyno = true);
         let tags = pilot_tags(&p, &[resolved(&a)]);
         assert_eq!(tags.iter().filter(|t| t.text == "CYNO").count(), 1);
-        assert_eq!(tags[0].key, "flag:CYNO");
+        assert_eq!(tags[0].key, "role:CYNO");
     }
 
     #[test]
     fn tag_strings() {
         let p = with_flags(pilot(1, "p"), |f| {
-            f.is_capital = true;
+            f.is_cyno = true;
             f.is_solo = true;
         });
-        assert_eq!(pilot_tag_strings(&p, &[]), vec!["CAPITAL", "SOLO"]);
+        assert_eq!(pilot_tag_strings(&p, &[]), vec!["CYNO", "SOLO"]);
         assert_eq!(
             pilot_tag_strings_with_index(&p, &AnnotationIndex::new()),
-            vec!["CAPITAL", "SOLO"]
+            vec!["CYNO", "SOLO"]
         );
     }
 }

@@ -28,6 +28,15 @@ pub struct ZkillStats {
     pub top_ships: Vec<ShipStats>,
     pub activity: Option<ActivityHeatmap>,
     pub top_systems: Vec<SystemStats>,
+    /// All-time ships lost per ship group, i.e. hulls the pilot has flown.
+    #[serde(default)]
+    pub lost_groups: Vec<GroupLosses>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct GroupLosses {
+    pub group_id: i64,
+    pub losses: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -4,7 +4,6 @@
 
 pub mod annotations;
 pub mod dscan_view;
-pub mod flags;
 pub mod format;
 pub mod network;
 pub mod pilot_accumulator;
@@ -12,6 +11,7 @@ pub mod pilot_counts;
 pub mod pilot_filters;
 pub mod pilot_sort;
 pub mod pilot_tags;
+pub mod roles;
 pub mod scan_input;
 pub mod shortcut;
 mod text;

@@ -29,7 +29,7 @@ use crate::views::grid::{Col, cell, span};
 use crate::views::local_panel::portrait;
 use crate::views::pilot_details::zkill_character_url;
 use crate::views::stats::kd_cell;
-use crate::views::tags::{OVERLAY, tag_strip};
+use crate::views::tags::{OVERLAY, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 33.;
 
@@ -282,6 +282,9 @@ impl OverlayView {
                         let tag = t.tag.clone();
                         div()
                             .id(SharedString::from(format!("overlay-tag-{}", t.tag)))
+                            .flex()
+                            .items_center()
+                            .gap_1()
                             .px_1p5()
                             .py_0p5()
                             .rounded_sm()
@@ -298,7 +301,11 @@ impl OverlayView {
                                     .filters
                                     .update(cx, |f, cx| f.update(cx, |f| f.toggle_tag(&tag)))
                             })
-                            .child(format!("{} {}", t.count, t.tag))
+                            .child(t.count.to_string())
+                            .map(|el| match role_glyph(&t.tag, &color, px(12.)) {
+                                Some(icon) => el.child(icon),
+                                None => el.child(t.tag.clone()),
+                            })
                     })),
             )
     }
@@ -393,11 +400,7 @@ impl OverlayView {
                             .child(pilot.character.name.clone()),
                     ),
             )
-            .child(c(COLS[2]).child(tag_strip(
-                ("overlay-tags", id as u64).into(),
-                &tags,
-                OVERLAY,
-            )))
+            .child(c(COLS[2]).child(tag_strip("overlay-tag", id as u64, &tags, OVERLAY)))
             .child(c(COLS[3]).child(ticker(
                 &pilot.character.corporation_ticker,
                 &pilot.character.corporation_name,

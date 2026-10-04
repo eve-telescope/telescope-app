@@ -49,10 +49,10 @@ pub fn detect_pilot_flags(zkill: &Option<ZkillStats>) -> PilotFlags {
 
     let ships = &stats.top_ships;
 
-    let has_ship_in_group = |groups: &[i64], min_kills: i64| {
+    let has_ship_in_group = |groups: &[i64], min_appearances: i64| {
         ships
             .iter()
-            .any(|s| groups.contains(&s.group_id) && s.kills >= min_kills)
+            .any(|s| groups.contains(&s.group_id) && s.kills + s.losses >= min_appearances)
     };
 
     flags.is_recon = has_ship_in_group(RECON_GROUPS, 1);

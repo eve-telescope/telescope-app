@@ -126,7 +126,7 @@ fn ships(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap_1()
-        .children(stats.top_ships.iter().map(|ship| {
+        .children(stats.top_ships.iter().take(5).map(|ship| {
             let base = format!(
                 "https://zkillboard.com/character/{character_id}/ship/{}/",
                 ship.ship_type_id

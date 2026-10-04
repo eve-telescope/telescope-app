@@ -29,7 +29,7 @@ use crate::views::grid::{Col, cell, span};
 use crate::views::intel_menu::{annotation_notes_button, pilot_context_menu};
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
 use crate::views::stats::{isk_cell, kd_cell};
-use crate::views::tags::{TABLE, tag_strip};
+use crate::views::tags::{TABLE, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 40.;
 const ERROR_HEIGHT: f32 = 24.;
@@ -285,7 +285,7 @@ impl LocalPanel {
             .child(
                 row_cell(COLS[2])
                     .gap_1()
-                    .child(tag_strip(("row-tags", id as u64).into(), &tags, TABLE))
+                    .child(tag_strip("row-tag", id as u64, &tags, TABLE))
                     .children(notes),
             )
             .child(
@@ -583,6 +583,7 @@ impl LocalPanel {
                                                     f.update(cx, |f| f.toggle_tag(&tag))
                                                 })
                                             })
+                                            .children(role_glyph(&t.tag, &color, px(14.)))
                                             .child(t.tag)
                                             .child(
                                                 div()

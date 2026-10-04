@@ -54,3 +54,19 @@ pub fn names<'a>(pilots: impl IntoIterator<Item = &'a PilotIntel>) -> Vec<&'a st
         .map(|p| p.character.name.as_str())
         .collect()
 }
+
+/// A pilot whose top ships include a Force Recon with kills.
+pub fn flying_recon(mut p: PilotIntel) -> PilotIntel {
+    p.zkill = Some(ZkillStats {
+        top_ships: vec![crate::models::ShipStats {
+            ship_type_id: 11957,
+            ship_name: "Falcon".into(),
+            group_id: 833,
+            group_name: "Force Recon Ship".into(),
+            kills: 1,
+            losses: 0,
+        }],
+        ..Default::default()
+    });
+    p
+}

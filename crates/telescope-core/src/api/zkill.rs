@@ -3,7 +3,7 @@ use log::{debug, error, warn};
 use reqwest::Client;
 
 use super::{cache_get_json, cache_set};
-use crate::models::{ActivityHeatmap, ShipStats, SystemStats, ZkillStats};
+use crate::models::{ActivityHeatmap, GroupLosses, ShipStats, SystemStats, ZkillStats};
 
 const DEFAULT_TTL_SECS: u64 = 3600;
 const EMPTY_TTL_SECS: u64 = 300;
@@ -13,8 +13,14 @@ pub struct FetchResult {
     pub from_cache: bool,
 }
 
+/// Versioned so entries parsed before zKillboard moved ship stats into
+/// `topShips` are not reused.
+fn cache_key(character_id: i64) -> String {
+    format!("zkill:v3:{character_id}")
+}
+
 pub fn try_get_cached(cache: &Cache, character_id: i64) -> Option<ZkillStats> {
-    cache_get_json(cache, &format!("zkill:{}", character_id))
+    cache_get_json(cache, &cache_key(character_id))
 }
 
 pub async fn fetch_stats(
@@ -22,7 +28,7 @@ pub async fn fetch_stats(
     client: &Client,
     character_id: i64,
 ) -> Result<FetchResult, String> {
-    let cache_key = format!("zkill:{}", character_id);
+    let cache_key = cache_key(character_id);
 
     if let Some(cached) = try_get_cached(cache, character_id) {
         debug!("Cache HIT for zKill {}", character_id);
@@ -140,6 +146,7 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
 
     let top_ships = parse_top_ships(json);
     let top_systems = parse_top_systems(json);
+    let lost_groups = parse_lost_groups(json);
     let activity = parse_activity(json);
 
     let avg_attackers = json
@@ -162,52 +169,69 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         top_ships,
         activity,
         top_systems,
+        lost_groups,
     }
 }
 
+/// `groups` holds all-time stats per ship group; `shipsLost` there counts
+/// the pilot's own losses in that group, so it tells what they have flown.
+fn parse_lost_groups(json: &serde_json::Value) -> Vec<GroupLosses> {
+    let mut groups: Vec<GroupLosses> = json
+        .get("groups")
+        .and_then(|v| v.as_object())
+        .into_iter()
+        .flat_map(|groups| groups.values())
+        .filter_map(|group| {
+            let group_id = group.get("groupID")?.as_i64()?;
+            let losses = group.get("shipsLost")?.as_i64()?;
+            (losses > 0).then_some(GroupLosses { group_id, losses })
+        })
+        .collect();
+    groups.sort_by_key(|g| g.group_id);
+    groups
+}
+
+/// Ships the pilot flew, most appearances first. zKillboard now reports
+/// them in `topShips` without names (filled in from the SDE later); the
+/// older `topLists` shipType list is read when `topShips` is absent.
 fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
-    let mut top_ships = Vec::new();
+    let rows: Vec<&serde_json::Value> = match json.get("topShips").and_then(|v| v.as_array()) {
+        Some(rows) => rows.iter().collect(),
+        None => json
+            .get("topLists")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter(|list| list.get("type").and_then(|v| v.as_str()) == Some("shipType"))
+            .filter_map(|list| list.get("values").and_then(|v| v.as_array()))
+            .flatten()
+            .collect(),
+    };
 
-    if let Some(lists) = json.get("topLists").and_then(|v| v.as_array()) {
-        for list in lists {
-            if list.get("type").and_then(|v| v.as_str()) == Some("shipType")
-                && let Some(values) = list.get("values").and_then(|v| v.as_array())
-            {
-                for (i, ship) in values.iter().enumerate() {
-                    if i >= 5 {
-                        break;
-                    }
-                    let ship_type_id = ship.get("shipTypeID").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let ship_name = ship
-                        .get("shipName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let group_id = ship.get("groupID").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let group_name = ship
-                        .get("groupName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let kills = ship.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let losses = ship.get("losses").and_then(|v| v.as_i64()).unwrap_or(0);
+    let int =
+        |row: &serde_json::Value, key: &str| row.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+    let text = |row: &serde_json::Value, key: &str| {
+        row.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
 
-                    if ship_type_id > 0 {
-                        top_ships.push(ShipStats {
-                            ship_type_id,
-                            ship_name,
-                            group_id,
-                            group_name,
-                            kills,
-                            losses,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    top_ships
+    let mut ships: Vec<ShipStats> = rows
+        .into_iter()
+        .map(|row| ShipStats {
+            ship_type_id: int(row, "shipTypeID"),
+            ship_name: text(row, "shipName"),
+            group_id: int(row, "groupID"),
+            group_name: text(row, "groupName"),
+            kills: int(row, "kills"),
+            losses: int(row, "losses"),
+        })
+        .filter(|ship| ship.ship_type_id > 0)
+        .collect();
+    ships.sort_by_key(|ship| std::cmp::Reverse(ship.kills + ship.losses));
+    ships.truncate(10);
+    ships
 }
 
 fn parse_top_systems(json: &serde_json::Value) -> Vec<SystemStats> {
@@ -336,30 +360,64 @@ mod tests {
     }
 
     #[test]
-    fn parse_top_ships_truncates_to_five_and_skips_invalid() {
-        let values: Vec<_> = (1..=7).map(|i| ship(i, "Ship", i * 10)).collect();
+    fn parse_top_ships_reads_top_ships_by_appearances() {
         let json = json!({
-            "topLists": [{ "type": "shipType", "values": values }]
+            "topShips": [
+                { "shipTypeID": 608, "groupID": 25, "kills": 0, "losses": 1 },
+                { "shipTypeID": 11957, "groupID": 833, "kills": 4, "losses": 2 },
+                { "shipTypeID": 0, "groupID": 25, "kills": 9, "losses": 0 }
+            ]
         });
         let ships = parse_top_ships(&json);
-        assert_eq!(ships.len(), 5);
-        assert_eq!(ships[0].kills, 10);
-
-        // shipTypeID 0 (or missing) rows are dropped.
-        let json = json!({
-            "topLists": [{ "type": "shipType", "values": [ship(0, "Bad", 5), ship(3, "Ok", 5)] }]
-        });
-        let ships = parse_top_ships(&json);
-        assert_eq!(ships.len(), 1);
-        assert_eq!(ships[0].ship_type_id, 3);
+        assert_eq!(ships.len(), 2);
+        assert_eq!(ships[0].ship_type_id, 11957);
+        assert_eq!(ships[0].group_id, 833);
+        assert_eq!(ships[0].ship_name, "");
     }
 
     #[test]
-    fn parse_top_ships_ignores_other_list_types() {
+    fn parse_top_ships_truncates_to_ten() {
+        let rows: Vec<_> = (1..=12).map(|i| ship(i, "Ship", i * 10)).collect();
+        let ships = parse_top_ships(&json!({ "topShips": rows }));
+        assert_eq!(ships.len(), 10);
+        assert_eq!(ships[0].kills, 120);
+    }
+
+    #[test]
+    fn parse_lost_groups_keeps_groups_with_losses() {
         let json = json!({
-            "topLists": [{ "type": "solarSystem", "values": [ship(1, "Ship", 5)] }]
+            "groups": {
+                "898": { "groupID": 898, "shipsLost": 2, "shipsDestroyed": 0 },
+                "30": { "groupID": 30, "shipsLost": 0, "shipsDestroyed": 5 },
+                "26": { "groupID": 26, "shipsLost": 7 }
+            }
         });
-        assert!(parse_top_ships(&json).is_empty());
+        assert_eq!(
+            parse_lost_groups(&json),
+            vec![
+                GroupLosses {
+                    group_id: 26,
+                    losses: 7
+                },
+                GroupLosses {
+                    group_id: 898,
+                    losses: 2
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_top_ships_falls_back_to_top_lists() {
+        let json = json!({
+            "topLists": [
+                { "type": "solarSystem", "values": [ship(1, "Ignored", 5)] },
+                { "type": "shipType", "values": [ship(3, "Rifter", 5)] }
+            ]
+        });
+        let ships = parse_top_ships(&json);
+        assert_eq!(ships.len(), 1);
+        assert_eq!(ships[0].ship_name, "Rifter");
     }
 
     #[test]

@@ -172,10 +172,14 @@ impl ScanStore {
             .update(cx, |filters, cx| filters.update(cx, |f| f.clear()));
         cx.notify();
 
-        let cache = Services::get(cx).cache.clone();
+        let services = Services::get(cx);
+        let cache = services.cache.clone();
+        let sde = services.sde.clone();
+        let dir = services.paths.data.clone();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PilotBatch>();
         let lookup = runtime::spawn(async move {
-            let result = lookup_pilots(&cache, &text, tx).await;
+            let index = sde.index(&dir).await.ok().flatten();
+            let result = lookup_pilots(&cache, &text, index.as_deref(), tx).await;
             if let Err(e) = cache.flush() {
                 warn!("Failed to persist cache: {}", e);
             }

@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 
 use crate::api::{create_client, esi, zkill};
 use crate::cache::Cache;
+use crate::domain::dscan::SdeIndex;
 use crate::domain::lookup::{
     BATCH_INTERVAL_MS, LookupEvent, LookupProgress, LookupTracker, MAX_BATCH_SIZE,
 };
@@ -40,9 +41,12 @@ pub struct PilotBatch {
     pub progress: LookupProgress,
 }
 
+/// `sde` names the ships in each pilot's zKillboard stats, which arrive as
+/// bare type ids.
 pub async fn lookup_pilots(
     cache: &Cache,
     names_text: &str,
+    sde: Option<&SdeIndex>,
     batches: UnboundedSender<PilotBatch>,
 ) -> Result<Vec<PilotIntel>, String> {
     let client = create_client()?;
@@ -79,7 +83,8 @@ pub async fn lookup_pilots(
     for (i, name) in names.into_iter().enumerate() {
         let character_id = id_map.get(&name.to_lowercase()).copied();
 
-        if let Some(pilot) = try_from_cache(cache, character_id) {
+        if let Some(mut pilot) = try_from_cache(cache, character_id) {
+            name_ships(&mut pilot, sde);
             tracker.apply(LookupEvent::CacheHit);
             queue.push_back(PilotResult {
                 pilot: pilot.clone(),
@@ -134,7 +139,8 @@ pub async fn lookup_pilots(
             }
             next = lookups.next(), if !stream_done => {
                 match next {
-                    Some((index, pilot)) => {
+                    Some((index, mut pilot)) => {
+                        name_ships(&mut pilot, sde);
                         tracker.apply(LookupEvent::Fetched);
                         queue.push_back(PilotResult {
                             pilot: pilot.clone(),
@@ -156,6 +162,22 @@ pub async fn lookup_pilots(
         tracker.cache_hits()
     );
     Ok(results)
+}
+
+fn name_ships(pilot: &mut PilotIntel, sde: Option<&SdeIndex>) {
+    let (Some(sde), Some(zkill)) = (sde, pilot.zkill.as_mut()) else {
+        return;
+    };
+    for ship in &mut zkill.top_ships {
+        if let Some(entry) = sde.get(ship.ship_type_id) {
+            if ship.ship_name.is_empty() {
+                ship.ship_name = entry.type_name.clone();
+            }
+            if ship.group_name.is_empty() {
+                ship.group_name = entry.group_name.clone();
+            }
+        }
+    }
 }
 
 fn try_from_cache(cache: &Cache, character_id: Option<i64>) -> Option<PilotIntel> {

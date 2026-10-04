@@ -242,7 +242,9 @@ mod tests {
         AnnotationIndex, annotations_by_target_key, annotations_from_entries,
     };
     use crate::view::pilot_tags::{pilot_tag_strings, pilot_tag_strings_with_index};
-    use crate::view::test_support::{affiliated_pilot, names, with_flags, with_threat};
+    use crate::view::test_support::{
+        affiliated_pilot, flying_recon, names, with_flags, with_threat,
+    };
 
     fn flag_tags(p: &PilotIntel) -> Vec<String> {
         pilot_tag_strings(p, &[])
@@ -341,7 +343,7 @@ mod tests {
     fn ors_tags_within_category() {
         let pilots = vec![
             with_flags(p(1), |f| f.is_cyno = true),
-            with_flags(p(2), |f| f.is_recon = true),
+            flying_recon(p(2)),
             p(3),
         ];
         let f = PilotFilters {
