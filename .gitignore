@@ -12,3 +12,8 @@ logs
 
 # Rust
 /target
+
+# Leftovers from the Tauri and Vue frontend
+node_modules
+dist
+/src-tauri
