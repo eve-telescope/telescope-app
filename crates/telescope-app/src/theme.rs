@@ -21,6 +21,14 @@ pub const ORANGE: u32 = 0xff9944;
 pub const GREEN: u32 = 0x44ddaa;
 pub const RED: u32 = 0xff5566;
 
+/// Raised surfaces: grouped lists, floating panels.
+pub const SURFACE: u32 = 0x18181d;
+
+/// White at `alpha`, for hairlines and faint fills that work on any surface.
+pub fn hairline(alpha: u8) -> Hsla {
+    tint(0xffffff, alpha)
+}
+
 pub fn color(hex: u32) -> Hsla {
     rgb(hex).into()
 }

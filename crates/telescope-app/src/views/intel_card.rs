@@ -22,10 +22,6 @@ use crate::theme::{self, BG_3, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName, mono};
 use crate::views::annotation_form;
 
-/// The panel surface sits a step above the table.
-const SURFACE: u32 = 0x18181d;
-const HAIRLINE: u32 = 0xffffff;
-
 pub type Close = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Label and accent for each annotation scope.
@@ -82,7 +78,7 @@ pub fn toggle_chip(id: ElementId, tag: &str, color: &str, active: bool) -> State
             if active {
                 el.bg(accent.opacity(0.18)).text_color(accent)
             } else {
-                el.bg(theme::tint(HAIRLINE, 0x0a))
+                el.bg(theme::hairline(0x0a))
                     .text_color(theme::color(TEXT_3))
                     .hover(move |s| s.bg(accent.opacity(0.1)).text_color(accent))
             }
@@ -107,7 +103,7 @@ pub fn tag_options(applied: &[String], customs: &[(String, String)]) -> Vec<(Str
 }
 
 pub fn divider() -> Div {
-    div().h(px(1.)).flex_none().bg(theme::tint(HAIRLINE, 0x0f))
+    div().h(px(1.)).flex_none().bg(theme::hairline(0x0f))
 }
 
 fn target_section(
@@ -170,10 +166,7 @@ fn target_section(
                         .invisible()
                         .group_hover(group, |s| s.visible())
                         .cursor_pointer()
-                        .hover(|s| {
-                            s.bg(theme::tint(HAIRLINE, 0x14))
-                                .text_color(theme::color(TEXT_1))
-                        })
+                        .hover(|s| s.bg(theme::hairline(0x14)).text_color(theme::color(TEXT_1)))
                         .child(Icon::new(IconName::Pencil).size_3())
                         .on_click(move |_, window, cx| {
                             close(window, cx);
@@ -214,7 +207,7 @@ fn target_section(
                 div()
                     .pl_2()
                     .border_l_2()
-                    .border_color(theme::tint(HAIRLINE, 0x1f))
+                    .border_color(theme::hairline(0x1f))
                     .text_xs()
                     .text_color(theme::color(TEXT_2))
                     .line_clamp(2)
@@ -348,9 +341,9 @@ pub fn intel_panel(pilot: &PilotIntel, close: Close, cx: &App) -> impl IntoEleme
         .flex_col()
         .overflow_hidden()
         .rounded(px(10.))
-        .bg(theme::color(SURFACE))
+        .bg(theme::color(theme::SURFACE))
         .border_1()
-        .border_color(theme::tint(HAIRLINE, 0x14))
+        .border_color(theme::hairline(0x14))
         .shadow_lg()
         .occlude()
         .child(header)

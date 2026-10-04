@@ -1,14 +1,14 @@
 //! Keeps one running instance. A second launch hands its command-line
 //! arguments (deep links on Windows and Linux) to the first one and exits.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 
 use interprocess::local_socket::{
     GenericNamespaced, ListenerOptions, Stream, ToNsName, traits::ListenerExt, traits::Stream as _,
 };
 use log::{info, warn};
-
-const SOCKET_NAME: &str = "com.timkunze.telescope.sock";
 
 pub enum Startup {
     /// This is the only instance. Messages from later launches arrive on the
@@ -17,8 +17,17 @@ pub enum Startup {
     Secondary,
 }
 
-pub fn acquire(args: &[String]) -> Startup {
-    let Ok(name) = SOCKET_NAME.to_ns_name::<GenericNamespaced>() else {
+/// One instance per data directory, so separate profiles don't hand their
+/// launches to each other.
+fn socket_name(data_dir: &Path) -> String {
+    let mut hasher = DefaultHasher::new();
+    data_dir.hash(&mut hasher);
+    format!("com.timkunze.telescope-{:x}.sock", hasher.finish())
+}
+
+pub fn acquire(data_dir: &Path, args: &[String]) -> Startup {
+    let socket = socket_name(data_dir);
+    let Ok(name) = socket.as_str().to_ns_name::<GenericNamespaced>() else {
         return Startup::Primary(futures::channel::mpsc::unbounded().1);
     };
 

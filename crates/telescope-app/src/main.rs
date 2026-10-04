@@ -50,7 +50,7 @@ fn main() {
     info!("Telescope v{} starting", env!("CARGO_PKG_VERSION"));
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let forwarded = match single_instance::acquire(&args) {
+    let forwarded = match single_instance::acquire(&paths.data, &args) {
         Startup::Primary(rx) => rx,
         Startup::Secondary => return,
     };

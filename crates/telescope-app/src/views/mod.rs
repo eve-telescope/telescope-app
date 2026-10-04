@@ -9,6 +9,7 @@ pub mod network_manager;
 pub mod notes;
 pub mod pilot_details;
 pub mod settings_panel;
+pub mod settings_ui;
 pub mod share_button;
 pub mod shortcut_editor;
 pub mod stats;

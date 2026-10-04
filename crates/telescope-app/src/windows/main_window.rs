@@ -1,15 +1,15 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{Selectable as _, Sizable as _, TitleBar};
+use gpui_kit::component::TitleBar;
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global, IntoElement,
-    ParentElement as _, Render, Styled as _, Subscription, Window, WindowBounds, WindowOptions,
-    div, point, px, size,
+    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, WindowBounds,
+    WindowOptions, div, point, px, size,
 };
 use telescope_core::view::scan_input::ScanInputKind;
 
 use crate::state::Stores;
 use crate::state::scan::ScanEvent;
-use crate::theme::{self, BG_0, CYAN, TEXT_1, TEXT_3};
+use crate::theme::{self, BG_0, CYAN, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName};
 use crate::views::dscan_panel::DscanPanel;
 use crate::views::input_panel::InputPanel;
@@ -66,23 +66,17 @@ impl MainView {
         let pilot_count = Stores::get(cx).scan.read(cx).pilots().len();
         let overlay_open = overlay::is_open(cx);
 
-        let overlay_toggle = Button::new("overlay-toggle")
-            .ghost()
-            .xsmall()
-            .icon(Icon::new(IconName::Layers))
-            .label("Overlay")
-            .tooltip("Toggle overlay window")
-            .selected(overlay_open)
-            .text_size(px(10.))
-            .map(|el| {
-                if overlay_open {
-                    el.bg(theme::tint(CYAN, 0x33))
-                        .text_color(theme::color(CYAN))
-                } else {
-                    el.text_color(theme::color(TEXT_3))
-                }
-            })
-            .on_click(|_, _, cx| overlay::toggle(cx));
+        let overlay_toggle = title_button(
+            "overlay-toggle",
+            IconName::Layers,
+            if overlay_open {
+                "Close overlay"
+            } else {
+                "Open overlay"
+            },
+            overlay_open,
+        )
+        .on_click(|_, _, cx| overlay::toggle(cx));
 
         TitleBar::new()
             .child(
@@ -124,12 +118,7 @@ impl MainView {
                     .mr_2()
                     .child(overlay_toggle)
                     .child(
-                        Button::new("open-settings")
-                            .ghost()
-                            .xsmall()
-                            .icon(Icon::new(IconName::Settings))
-                            .tooltip("Settings")
-                            .text_color(theme::color(TEXT_3))
+                        title_button("open-settings", IconName::Settings, "Settings", false)
                             .on_click(|_, _, cx| settings_window::open(cx)),
                     ),
             )
@@ -164,6 +153,36 @@ impl Render for MainView {
 }
 
 use gpui_kit::prelude::FluentBuilder as _;
+
+/// An icon button for the title bar, highlighted while `active`.
+fn title_button(
+    id: &'static str,
+    icon: IconName,
+    tooltip: &'static str,
+    active: bool,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    div()
+        .id(id)
+        .size(px(30.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.))
+        .cursor_pointer()
+        .map(|el| {
+            if active {
+                el.bg(theme::tint(CYAN, 0x26))
+                    .text_color(theme::color(CYAN))
+            } else {
+                el.text_color(theme::color(TEXT_2))
+                    .hover(|s| s.bg(theme::hairline(0x14)).text_color(theme::color(TEXT_1)))
+            }
+        })
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(tooltip).build(window, cx)
+        })
+        .child(Icon::new(icon).size(px(18.)))
+}
 
 fn save_bounds(window: &mut Window, cx: &mut App) {
     if let WindowBounds::Windowed(bounds) = window.window_bounds() {

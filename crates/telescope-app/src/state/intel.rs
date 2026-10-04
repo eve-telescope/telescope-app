@@ -294,11 +294,6 @@ impl IntelStore {
         );
     }
 
-    pub fn clear_selected_network(&mut self, _cx: &mut Context<Self>) {
-        let service = self.service.clone();
-        runtime::spawn(async move { service.clear_selected_network().await }).detach();
-    }
-
     pub fn create_network(&mut self, name: String, cx: &mut Context<Self>) {
         let service = self.service.clone();
         self.run(
