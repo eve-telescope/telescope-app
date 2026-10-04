@@ -10,8 +10,8 @@ use gpui_kit::{
 };
 use telescope_core::models::PilotIntel;
 use telescope_core::view::format::{
-    alliance_logo_url, character_portrait_url, corporation_logo_url, format_isk, format_ppk,
-    kd_ratio, ship_icon_url, to_fixed,
+    alliance_logo_url, character_portrait_url, corporation_logo_url, format_ppk, ship_icon_url,
+    to_fixed,
 };
 use telescope_core::view::pilot_counts::tag_counts;
 use telescope_core::view::pilot_filters::UNKNOWN_CORPORATION;
@@ -22,13 +22,13 @@ use telescope_core::view::pilot_tags::{
 
 use crate::state::Stores;
 use crate::theme::{
-    self, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, GREEN, ORANGE, RED, TEXT_1, TEXT_2,
-    TEXT_3,
+    self, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, CYAN_DIM, ORANGE, RED, TEXT_1, TEXT_2, TEXT_3,
 };
 use crate::ui::{Icon, IconName, mono, section_title};
 use crate::views::grid::{Col, cell, span};
 use crate::views::intel_menu::{annotation_notes_button, pilot_context_menu};
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
+use crate::views::stats::{isk_cell, kd_cell};
 
 const ROW_HEIGHT: f32 = 40.;
 const ERROR_HEIGHT: f32 = 24.;
@@ -344,43 +344,14 @@ impl LocalPanel {
                     None => dash().into_any_element(),
                 }),
             )
-            .child(
-                row_cell(COLS[6])
-                    .justify_end()
-                    .font_family(mono())
-                    .text_sm()
-                    .text_color(theme::color(TEXT_2))
-                    .child(match z {
-                        Some(z) => kd_ratio(z.ships_destroyed, z.ships_lost).into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                row_cell(COLS[7])
-                    .font_family(mono())
-                    .text_size(px(11.))
-                    .child(match z {
-                        Some(z) => plus_minus(
-                            format!("+{}", group_thousands(z.ships_destroyed)),
-                            format!("-{}", group_thousands(z.ships_lost)),
-                        )
-                        .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                row_cell(COLS[8])
-                    .font_family(mono())
-                    .text_size(px(11.))
-                    .child(match z {
-                        Some(z) => plus_minus(
-                            format!("+{}", format_isk(z.isk_destroyed)),
-                            format!("-{}", format_isk(z.isk_lost)),
-                        )
-                        .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
+            .child(span(&COLS[6..8]).px_2().py_1p5().child(match z {
+                Some(z) => kd_cell(("row-kd", id as u64).into(), z, 56., px(14.)),
+                None => dash().into_any_element(),
+            }))
+            .child(row_cell(COLS[8]).child(match z {
+                Some(z) => isk_cell(("row-isk", id as u64).into(), z, px(12.)),
+                None => dash().into_any_element(),
+            }))
             .child(
                 row_cell(COLS[9])
                     .justify_end()
@@ -903,25 +874,4 @@ fn affiliation(logo: Option<String>, name: Option<String>) -> impl IntoElement {
             el.child(img(logo).size(px(16.)).rounded_sm().flex_none())
         })
         .child(div().truncate().child(name.unwrap_or_else(|| "—".into())))
-}
-
-fn plus_minus(plus: String, minus: String) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .line_height(px(14.))
-        .child(div().text_color(theme::color(GREEN)).child(plus))
-        .child(div().text_color(theme::color(RED)).child(minus))
-}
-
-fn group_thousands(n: i64) -> String {
-    let digits = n.unsigned_abs().to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    if n < 0 { format!("-{out}") } else { out }
 }

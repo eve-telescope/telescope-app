@@ -3,7 +3,8 @@
 
 use std::rc::Rc;
 
-use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{Selectable as _, Sizable as _, VirtualListScrollHandle, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, FontWeight, Global,
@@ -12,7 +13,7 @@ use gpui_kit::{
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, img, point, px, size,
 };
 use telescope_core::models::PilotIntel;
-use telescope_core::view::format::{format_ppk, kd_ratio, ship_icon_url, to_fixed};
+use telescope_core::view::format::{format_ppk, ship_icon_url, to_fixed};
 use telescope_core::view::pilot_counts::{tag_counts, threat_counts};
 use telescope_core::view::pilot_sort::{SortDirection, SortKey, SortState, sort_pilots};
 use telescope_core::view::pilot_tags::{
@@ -21,13 +22,13 @@ use telescope_core::view::pilot_tags::{
 
 use crate::state::Stores;
 use crate::theme::{
-    self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, GREEN, ORANGE, RED, TEXT_1, TEXT_2,
-    TEXT_3,
+    self, BG_0, BG_1, BG_2, BG_3, BG_HOVER, BORDER, CYAN, ORANGE, TEXT_1, TEXT_2, TEXT_3,
 };
 use crate::ui::{Icon, IconName, dot, mono};
 use crate::views::grid::{Col, cell, span};
 use crate::views::local_panel::portrait;
 use crate::views::pilot_details::zkill_character_url;
+use crate::views::stats::kd_cell;
 
 const ROW_HEIGHT: f32 = 33.;
 
@@ -64,6 +65,7 @@ impl OverlayView {
             cx.observe(&stores.scan, |this, _, cx| this.refresh(cx)),
             cx.observe(&stores.filters, |this, _, cx| this.refresh(cx)),
             cx.observe(&stores.intel, |this, _, cx| this.refresh(cx)),
+            cx.observe(&stores.settings, |_, _, cx| cx.notify()),
             cx.observe_window_bounds(window, |_, window, cx| save_bounds(window, cx)),
         ];
         let mut view = Self {
@@ -157,31 +159,29 @@ impl OverlayView {
                     .items_center()
                     .gap_1()
                     .child(
-                        icon_button(
-                            "overlay-lock",
-                            if locked {
+                        Button::new("overlay-lock")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(if locked {
                                 IconName::Lock
                             } else {
                                 IconName::LockOpen
-                            },
-                            if locked { CYAN } else { TEXT_1 },
-                        )
-                        .when(locked, |el| {
-                            el.bg(theme::tint(CYAN, 0x33))
-                                .text_color(theme::color(CYAN))
-                        })
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(if locked {
+                            }))
+                            .selected(locked)
+                            .when(locked, |b| b.text_color(theme::color(CYAN)))
+                            .tooltip(if locked {
                                 "Unlock position"
                             } else {
                                 "Lock position"
                             })
-                            .build(window, cx)
-                        })
-                        .on_click(|_, _, cx| set_locked(!is_locked(cx), cx)),
+                            .on_click(|_, _, cx| set_locked(!is_locked(cx), cx)),
                     )
                     .child(
-                        icon_button("overlay-close", IconName::X, RED)
+                        Button::new("overlay-close")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::X)
+                            .tooltip("Close overlay")
                             .on_click(|_, window, _| window.remove_window()),
                     ),
             )
@@ -463,39 +463,10 @@ impl OverlayView {
                         None => dash().into_any_element(),
                     }),
             )
-            .child(
-                c(COLS[6])
-                    .font_family(mono())
-                    .text_size(px(10.))
-                    .text_color(theme::color(TEXT_2))
-                    .child(match z {
-                        Some(z) => kd_ratio(z.ships_destroyed, z.ships_lost).into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
-            .child(
-                c(COLS[7])
-                    .font_family(mono())
-                    .text_size(px(9.))
-                    .child(match z {
-                        Some(z) => div()
-                            .flex()
-                            .flex_col()
-                            .line_height(px(11.))
-                            .child(
-                                div()
-                                    .text_color(theme::color(GREEN))
-                                    .child(format!("+{}", z.ships_destroyed)),
-                            )
-                            .child(
-                                div()
-                                    .text_color(theme::color(RED))
-                                    .child(format!("-{}", z.ships_lost)),
-                            )
-                            .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
-            )
+            .child(span(&COLS[6..8]).px_0p5().child(match z {
+                Some(z) => kd_cell(("overlay-kd", id as u64).into(), z, 28., px(10.)),
+                None => dash().into_any_element(),
+            }))
             .child(
                 c(COLS[8])
                     .justify_end()
@@ -573,27 +544,6 @@ impl Render for OverlayView {
     }
 }
 
-fn icon_button(
-    id: &'static str,
-    icon: IconName,
-    hover_text: u32,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
-    div()
-        .id(id)
-        .size(px(24.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .text_color(theme::color(TEXT_3))
-        .cursor_pointer()
-        .hover(move |s| {
-            s.bg(theme::color(BG_3))
-                .text_color(theme::color(hover_text))
-        })
-        .child(Icon::new(icon).size_3p5())
-}
-
 fn is_locked(cx: &App) -> bool {
     Stores::get(cx).settings.read(cx).get().overlay_locked
 }
@@ -613,15 +563,19 @@ fn save_bounds(window: &mut Window, cx: &mut App) {
     }
 }
 
-/// GPUI can't change resizability of an open window, so locking reopens the
-/// overlay in place with the new options.
+/// GPUI can't change whether an open window is movable or resizable, so
+/// locking reopens the overlay in place with the new options. This runs from
+/// the overlay's own click handler, where the window can't be removed, hence
+/// the deferral.
 fn set_locked(locked: bool, cx: &mut App) {
     Stores::get(cx).settings.update(cx, |settings, cx| {
         settings.update(cx, |s| s.overlay_locked = locked)
     });
     if is_open(cx) {
-        close(cx);
-        open(cx);
+        cx.defer(|cx| {
+            close(cx);
+            cx.defer(create);
+        });
     }
 }
 
@@ -638,7 +592,10 @@ pub fn open(cx: &mut App) {
         let _ = handle.update(cx, |_, window, _| window.activate_window());
         return;
     }
+    create(cx);
+}
 
+fn create(cx: &mut App) {
     let settings = Stores::get(cx).settings.read(cx).get().clone();
     let bounds = match settings.overlay_window {
         Some(b) => Bounds::new(point(px(b.x), px(b.y)), size(px(b.width), px(b.height))),

@@ -6,13 +6,14 @@ use gpui_kit::{
     relative,
 };
 use telescope_core::models::{ActivityHeatmap, PilotIntel, ZkillStats};
-use telescope_core::view::format::ship_icon_url;
+use telescope_core::view::format::{format_isk, ship_icon_url};
 
 use crate::theme::{self, BG_2, BG_3, BORDER, CYAN, GREEN, ORANGE, RED, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName, mono};
+use crate::views::stats::group_thousands;
 
 /// Height of the expanded panel, fixed so the virtual list can size rows.
-pub const DETAILS_HEIGHT: f32 = 172.;
+pub const DETAILS_HEIGHT: f32 = 236.;
 
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -89,7 +90,11 @@ fn combat(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .gap_0p5()
-                .child(stat("Solo Kills", stats.solo_kills.to_string()))
+                .child(stat("Kills", group_thousands(stats.ships_destroyed)))
+                .child(stat("Losses", group_thousands(stats.ships_lost)))
+                .child(stat("ISK Destroyed", format_isk(stats.isk_destroyed)))
+                .child(stat("ISK Lost", format_isk(stats.isk_lost)))
+                .child(stat("Solo Kills", group_thousands(stats.solo_kills)))
                 .child(stat("Danger", format!("{:.0}%", stats.danger_ratio)))
                 .child(stat("Gang", format!("{:.0}%", stats.gang_ratio))),
         )
