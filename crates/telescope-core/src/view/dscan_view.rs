@@ -175,6 +175,119 @@ pub fn bar_width(count: usize, max: usize, min_percent: f64) -> f64 {
     min_percent.max(count as f64 / max as f64 * 100.0)
 }
 
+/// Ship hull classes with an overview bracket icon in the game client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Hull {
+    Frigate,
+    MiningFrigate,
+    Destroyer,
+    Cruiser,
+    Battlecruiser,
+    Battleship,
+    Carrier,
+    Dreadnought,
+    ForceAuxiliary,
+    Supercarrier,
+    Titan,
+    Freighter,
+    Industrial,
+    IndustrialCommand,
+    MiningBarge,
+    Shuttle,
+    Capsule,
+    Rookie,
+}
+
+impl Hull {
+    pub const ALL: [Hull; 18] = [
+        Hull::Frigate,
+        Hull::MiningFrigate,
+        Hull::Destroyer,
+        Hull::Cruiser,
+        Hull::Battlecruiser,
+        Hull::Battleship,
+        Hull::Carrier,
+        Hull::Dreadnought,
+        Hull::ForceAuxiliary,
+        Hull::Supercarrier,
+        Hull::Titan,
+        Hull::Freighter,
+        Hull::Industrial,
+        Hull::IndustrialCommand,
+        Hull::MiningBarge,
+        Hull::Shuttle,
+        Hull::Capsule,
+        Hull::Rookie,
+    ];
+
+    /// The bracket's file stem, as in `res:/ui/texture/shared/brackets/{stem}_32.png`.
+    pub fn bracket(self) -> &'static str {
+        match self {
+            Hull::Frigate => "frigate",
+            Hull::MiningFrigate => "miningfrigate",
+            Hull::Destroyer => "destroyer",
+            Hull::Cruiser => "cruiser",
+            Hull::Battlecruiser => "battlecruiser",
+            Hull::Battleship => "battleship",
+            Hull::Carrier => "carrier",
+            Hull::Dreadnought => "dreadnought",
+            Hull::ForceAuxiliary => "forceauxiliary",
+            Hull::Supercarrier => "supercarrier",
+            Hull::Titan => "titan",
+            Hull::Freighter => "freighter",
+            Hull::Industrial => "industrial",
+            Hull::IndustrialCommand => "industrialcommand",
+            Hull::MiningBarge => "miningbarge",
+            Hull::Shuttle => "shuttle",
+            Hull::Capsule => "capsule",
+            Hull::Rookie => "rookie",
+        }
+    }
+
+    /// The hull for an SDE ship group name, `None` for groups the client
+    /// draws with a non-class bracket.
+    pub fn for_group(group_name: &str) -> Option<Hull> {
+        Some(match group_name {
+            "Frigate"
+            | "Assault Frigate"
+            | "Interceptor"
+            | "Covert Ops"
+            | "Stealth Bomber"
+            | "Electronic Attack Ship"
+            | "Logistics Frigate"
+            | "Prototype Exploration Ship" => Hull::Frigate,
+            "Expedition Frigate" => Hull::MiningFrigate,
+            "Destroyer" | "Interdictor" | "Tactical Destroyer" | "Command Destroyer" => {
+                Hull::Destroyer
+            }
+            "Cruiser"
+            | "Heavy Assault Cruiser"
+            | "Heavy Interdiction Cruiser"
+            | "Logistics"
+            | "Combat Recon Ship"
+            | "Force Recon Ship"
+            | "Strategic Cruiser"
+            | "Flag Cruiser"
+            | "Special Edition Yachts" => Hull::Cruiser,
+            "Combat Battlecruiser" | "Attack Battlecruiser" | "Command Ship" => Hull::Battlecruiser,
+            "Battleship" | "Black Ops" | "Marauder" => Hull::Battleship,
+            "Carrier" | "Command Carrier" => Hull::Carrier,
+            "Dreadnought" | "Lancer Dreadnought" => Hull::Dreadnought,
+            "Force Auxiliary" => Hull::ForceAuxiliary,
+            "Supercarrier" => Hull::Supercarrier,
+            "Titan" => Hull::Titan,
+            "Freighter" | "Jump Freighter" => Hull::Freighter,
+            "Hauler" | "Blockade Runner" | "Deep Space Transport" => Hull::Industrial,
+            "Industrial Command Ship" | "Capital Industrial Ship" => Hull::IndustrialCommand,
+            "Mining Barge" | "Exhumer" => Hull::MiningBarge,
+            "Shuttle" => Hull::Shuttle,
+            "Capsule" => Hull::Capsule,
+            "Corvette" | "Citizen Ships" => Hull::Rookie,
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +436,18 @@ mod tests {
     fn bar_width_clamps_to_minimum() {
         assert_eq!(bar_width(1, 1000, 6.0), 6.0);
         assert_eq!(bar_width(1, 1000, 4.0), 4.0);
+    }
+
+    #[test]
+    fn hull_maps_ship_groups_to_brackets() {
+        assert_eq!(Hull::for_group("Interceptor"), Some(Hull::Frigate));
+        assert_eq!(Hull::for_group("Interdictor"), Some(Hull::Destroyer));
+        assert_eq!(Hull::for_group("Logistics"), Some(Hull::Cruiser));
+        assert_eq!(Hull::for_group("Command Ship"), Some(Hull::Battlecruiser));
+        assert_eq!(Hull::for_group("Black Ops"), Some(Hull::Battleship));
+        assert_eq!(Hull::for_group("Jump Freighter"), Some(Hull::Freighter));
+        assert_eq!(Hull::for_group("Exhumer"), Some(Hull::MiningBarge));
+        assert_eq!(Hull::for_group("Expedition Command Ship"), None);
+        assert_eq!(Hull::for_group("Unknown class"), None);
     }
 }

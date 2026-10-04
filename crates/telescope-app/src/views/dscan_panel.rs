@@ -2,13 +2,13 @@ use gpui_kit::component::Sizable as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Context, Div, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
-    relative,
+    AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
+    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
+    img, px, relative,
 };
 use telescope_core::models::DscanEntry;
 use telescope_core::view::dscan_view::{
-    ClassIcon, TypeBucket, bar_width, bucket_by_type, class_icon, count_by_class,
+    ClassIcon, Hull, TypeBucket, bar_width, bucket_by_type, class_icon, count_by_class,
 };
 use telescope_core::view::format::ship_icon_url;
 
@@ -56,6 +56,22 @@ fn class_icon_name(icon: ClassIcon) -> IconName {
         ClassIcon::Shield => IconName::Shield,
         ClassIcon::Rocket => IconName::Rocket,
         ClassIcon::Ship => IconName::Ship,
+    }
+}
+
+/// The in-game overview bracket for a ship class, or a Lucide icon for
+/// classes without one.
+fn class_glyph(class: &str, active: bool) -> AnyElement {
+    match Hull::for_group(class) {
+        Some(hull) => img(format!("brackets/{}.png", hull.bracket()))
+            .size(px(16.))
+            .flex_none()
+            .opacity(if active { 1. } else { 0.6 })
+            .into_any_element(),
+        None => Icon::new(class_icon_name(class_icon(class)))
+            .size_4()
+            .text_color(theme::color(if active { CYAN } else { TEXT_3 }))
+            .into_any_element(),
     }
 }
 
@@ -278,10 +294,28 @@ impl Render for DscanPanel {
                                             )
                                             .child(
                                                 div()
-                                                    .truncate()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_1()
                                                     .text_xs()
                                                     .text_color(theme::color(TEXT_3))
-                                                    .child(t.subtitle.clone()),
+                                                    .when_some(
+                                                        Hull::for_group(&t.subtitle),
+                                                        |el, hull| {
+                                                            el.child(
+                                                                img(format!(
+                                                                    "brackets/{}.png",
+                                                                    hull.bracket()
+                                                                ))
+                                                                .size(px(12.))
+                                                                .flex_none()
+                                                                .opacity(0.6),
+                                                            )
+                                                        },
+                                                    )
+                                                    .child(
+                                                        div().truncate().child(t.subtitle.clone()),
+                                                    ),
                                             ),
                                     )
                                     .child(
@@ -437,15 +471,7 @@ impl Render for DscanPanel {
                                                 theme::color(BG_2)
                                             }),
                                     )
-                                    .child(
-                                        Icon::new(class_icon_name(class_icon(&class.name)))
-                                            .size_4()
-                                            .text_color(theme::color(if active {
-                                                CYAN
-                                            } else {
-                                                TEXT_3
-                                            })),
-                                    )
+                                    .child(class_glyph(&class.name, active))
                                     .child(
                                         div()
                                             .flex_1()
