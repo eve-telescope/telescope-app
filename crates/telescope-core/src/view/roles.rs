@@ -2,8 +2,6 @@
 //! role is drawn with the game's overview bracket for its hull, tinted by
 //! category, in place of the old text flags.
 
-use std::collections::HashMap;
-
 use super::dscan_view::Hull;
 use crate::models::PilotIntel;
 
@@ -76,6 +74,29 @@ impl Role {
         }
     }
 
+    /// Lower is more dangerous; icons are shown in this order.
+    pub fn danger_rank(self) -> u8 {
+        match self {
+            Role::Recon => 0,
+            Role::Marauder => 1,
+            Role::Titan => 2,
+            Role::Supercarrier => 3,
+            Role::BlackOps => 4,
+            Role::Dreadnought => 5,
+            Role::HeavyInterdictor => 6,
+            Role::Carrier => 7,
+            Role::ForceAuxiliary => 8,
+            Role::Interdictor => 9,
+            Role::StealthBomber => 10,
+            Role::StrategicCruiser => 11,
+            Role::CommandShip => 12,
+            Role::Cyno => 13,
+            Role::CovertOps => 14,
+            Role::Logistics => 15,
+            Role::Solo => 16,
+        }
+    }
+
     /// Red is kept for the most dangerous hulls; every other role gets its
     /// own hue so icons stay distinguishable at a glance.
     pub fn color(self) -> &'static str {
@@ -140,10 +161,9 @@ impl Role {
     }
 }
 
-/// The pilot's roles, most flown first, followed by cyno and solo when their
-/// zKillboard flags are set.
+/// The pilot's roles, most dangerous first. Cyno and solo come from their
+/// zKillboard flags.
 pub fn pilot_roles(pilot: &PilotIntel) -> Vec<Role> {
-    let mut kills: HashMap<Role, i64> = HashMap::new();
     let mut order: Vec<Role> = Vec::new();
     // Recent appearances from top ships, plus all-time losses per group so
     // hulls that dropped out of the recent top list still count.
@@ -161,21 +181,17 @@ pub fn pilot_roles(pilot: &PilotIntel) -> Vec<Role> {
         let Some(role) = Role::for_group(group_id) else {
             continue;
         };
-        if appearances < 1 {
-            continue;
-        }
-        if !kills.contains_key(&role) {
+        if appearances > 0 && !order.contains(&role) {
             order.push(role);
         }
-        *kills.entry(role).or_default() += appearances;
     }
-    order.sort_by_key(|role| std::cmp::Reverse(kills[role]));
     if pilot.flags.is_cyno {
         order.push(Role::Cyno);
     }
     if pilot.flags.is_solo {
         order.push(Role::Solo);
     }
+    order.sort_by_key(|role| role.danger_rank());
     order
 }
 
@@ -206,9 +222,18 @@ mod tests {
     }
 
     #[test]
-    fn roles_follow_kills_and_merge_recon_groups() {
-        let p = flying(vec![ship(900, 5), ship(833, 4), ship(906, 3), ship(26, 50)]);
-        assert_eq!(pilot_roles(&p), vec![Role::Recon, Role::Marauder]);
+    fn roles_sort_by_danger_and_merge_recon_groups() {
+        let p = flying(vec![
+            ship(541, 90),
+            ship(900, 50),
+            ship(833, 1),
+            ship(906, 3),
+            ship(26, 200),
+        ]);
+        assert_eq!(
+            pilot_roles(&p),
+            vec![Role::Recon, Role::Marauder, Role::Interdictor]
+        );
     }
 
     #[test]
