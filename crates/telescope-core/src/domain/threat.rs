@@ -83,8 +83,8 @@ pub struct DangerPart {
     pub value: f64,
 }
 
-/// A 0..=100 rating of how dangerous a pilot is, led by experience and
-/// small-gang lethality, then recent activity, effectiveness, the hulls they
+/// A 0..=100 rating of how dangerous a pilot is, led by small-gang
+/// lethality and experience, then recent activity, effectiveness, the hulls they
 /// fly and the danger of their targets.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DangerScore {
@@ -156,14 +156,14 @@ pub fn danger_score(stats: &ZkillStats) -> Option<DangerScore> {
 
     let parts = vec![
         DangerPart {
-            label: "Experience",
-            weight: 0.30,
-            value: experience,
+            label: "Small-gang lethality",
+            weight: 0.40,
+            value: gang,
         },
         DangerPart {
-            label: "Small-gang lethality",
-            weight: 0.28,
-            value: gang,
+            label: "Experience",
+            weight: 0.20,
+            value: experience,
         },
         DangerPart {
             label: "Recent activity",
@@ -172,12 +172,12 @@ pub fn danger_score(stats: &ZkillStats) -> Option<DangerScore> {
         },
         DangerPart {
             label: "Effectiveness",
-            weight: 0.12,
+            weight: 0.11,
             value: effectiveness,
         },
         DangerPart {
             label: "Dangerous hulls",
-            weight: 0.08,
+            weight: 0.07,
             value: roles,
         },
         DangerPart {
