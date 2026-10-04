@@ -217,7 +217,7 @@ impl NetworkManager {
                 div()
                     .text_xs()
                     .text_color(theme::color(TEXT_3))
-                    .child("Sign in via the Settings tab to access your intel networks."),
+                    .child("Connect your character under General to access your intel networks."),
             )
     }
 
@@ -906,7 +906,8 @@ fn scan_row(scan: &NetworkScan, now: chrono::DateTime<Utc>) -> impl IntoElement 
         .on_click(move |_, _, cx| {
             Stores::get(cx).scan.update(cx, |scan, cx| {
                 scan.load(&raw, cx);
-            })
+            });
+            crate::windows::main_window::focus(cx);
         })
         .child(
             div()

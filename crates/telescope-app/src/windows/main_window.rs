@@ -2,41 +2,25 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Selectable as _, Sizable as _, TitleBar};
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, WindowBounds,
-    WindowOptions, div, point, px, size,
+    ParentElement as _, Render, Styled as _, Subscription, Window, WindowBounds, WindowOptions,
+    div, point, px, size,
 };
 use telescope_core::view::scan_input::ScanInputKind;
 
 use crate::state::Stores;
 use crate::state::scan::ScanEvent;
-use crate::theme::{self, BG_0, BG_3, CYAN, TEXT_1, TEXT_3};
+use crate::theme::{self, BG_0, CYAN, TEXT_1, TEXT_3};
 use crate::ui::{Icon, IconName};
 use crate::views::dscan_panel::DscanPanel;
 use crate::views::input_panel::InputPanel;
 use crate::views::local_panel::LocalPanel;
-use crate::views::network_manager::NetworkManager;
-use crate::views::settings_panel::SettingsPanel;
-use crate::windows::overlay;
+use crate::windows::{overlay, settings_window};
 
+/// Which results fill the main window; follows the kind of the last scan.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Tab {
+enum Results {
     Local,
     Dscan,
-    Networks,
-    Settings,
-}
-
-impl Tab {
-    const ALL: [Tab; 4] = [Tab::Local, Tab::Dscan, Tab::Networks, Tab::Settings];
-
-    fn label(self) -> &'static str {
-        match self {
-            Tab::Local => "Local",
-            Tab::Dscan => "D-Scan",
-            Tab::Networks => "Network",
-            Tab::Settings => "Settings",
-        }
-    }
 }
 
 struct MainWindow(AnyWindowHandle, Entity<MainView>);
@@ -44,12 +28,10 @@ struct MainWindow(AnyWindowHandle, Entity<MainView>);
 impl Global for MainWindow {}
 
 pub struct MainView {
-    tab: Tab,
+    results: Results,
     input: Entity<InputPanel>,
     local: Entity<LocalPanel>,
     dscan: Entity<DscanPanel>,
-    networks: Entity<NetworkManager>,
-    settings: Entity<SettingsPanel>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -58,26 +40,24 @@ impl MainView {
         let stores = Stores::get(cx);
         let subscriptions = vec![
             cx.subscribe(&stores.scan, |this, _, event, cx| match event {
-                ScanEvent::Started(ScanInputKind::Local) => this.set_tab(Tab::Local, cx),
-                ScanEvent::Started(ScanInputKind::Dscan) => this.set_tab(Tab::Dscan, cx),
+                ScanEvent::Started(ScanInputKind::Local) => this.show(Results::Local, cx),
+                ScanEvent::Started(ScanInputKind::Dscan) => this.show(Results::Dscan, cx),
             }),
             cx.observe(&stores.scan, |_, _, cx| cx.notify()),
             cx.observe_window_bounds(window, |_, window, cx| save_bounds(window, cx)),
         ];
         Self {
-            tab: Tab::Local,
+            results: Results::Local,
             input: cx.new(|cx| InputPanel::new(window, cx)),
             local: cx.new(|cx| LocalPanel::new(window, cx)),
             dscan: cx.new(|cx| DscanPanel::new(window, cx)),
-            networks: cx.new(|cx| NetworkManager::new(window, cx)),
-            settings: cx.new(|cx| SettingsPanel::new(window, cx)),
             _subscriptions: subscriptions,
         }
     }
 
-    pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self.tab != tab {
-            self.tab = tab;
+    fn show(&mut self, results: Results, cx: &mut Context<Self>) {
+        if self.results != results {
+            self.results = results;
             cx.notify();
         }
     }
@@ -86,27 +66,9 @@ impl MainView {
         let pilot_count = Stores::get(cx).scan.read(cx).pilots().len();
         let overlay_open = overlay::is_open(cx);
 
-        let nav = div()
-            .flex()
-            .items_center()
-            .gap_1()
-            .children(Tab::ALL.map(|tab| {
-                let active = self.tab == tab;
-                Button::new(SharedString::from(tab.label()))
-                    .ghost()
-                    .xsmall()
-                    .label(tab.label())
-                    .selected(active)
-                    .text_size(px(10.))
-                    .text_color(theme::color(if active { TEXT_1 } else { TEXT_3 }))
-                    .when(active, |el| el.bg(theme::color(BG_3)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_tab(tab, cx)))
-            }));
-
         let overlay_toggle = Button::new("overlay-toggle")
             .ghost()
             .xsmall()
-            .mr_2()
             .icon(Icon::new(IconName::Layers))
             .label("Overlay")
             .tooltip("Toggle overlay window")
@@ -153,18 +115,32 @@ impl MainView {
                         )
                     }),
             )
-            .child(div().flex_1().flex().justify_center().child(nav))
-            .child(overlay_toggle)
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .mr_2()
+                    .child(overlay_toggle)
+                    .child(
+                        Button::new("open-settings")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::Settings))
+                            .tooltip("Settings")
+                            .text_color(theme::color(TEXT_3))
+                            .on_click(|_, _, cx| settings_window::open(cx)),
+                    ),
+            )
     }
 }
 
 impl Render for MainView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = match self.tab {
-            Tab::Local => self.local.clone().into_any_element(),
-            Tab::Dscan => self.dscan.clone().into_any_element(),
-            Tab::Networks => self.networks.clone().into_any_element(),
-            Tab::Settings => self.settings.clone().into_any_element(),
+        let content = match self.results {
+            Results::Local => self.local.clone().into_any_element(),
+            Results::Dscan => self.dscan.clone().into_any_element(),
         };
 
         div()

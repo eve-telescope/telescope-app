@@ -305,7 +305,7 @@ pub fn intel_panel(pilot: &PilotIntel, close: Close, cx: &App) -> impl IntoEleme
             .py_3()
             .text_xs()
             .text_color(theme::color(TEXT_2))
-            .child("Connect to an intel network in the Network tab to tag pilots.")
+            .child("Connect to an intel network in Settings to tag pilots.")
             .into_any_element(),
         Some((network_id, name)) => {
             let customs = intel.network_custom_tags(network_id);
