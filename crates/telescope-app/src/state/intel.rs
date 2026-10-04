@@ -35,6 +35,9 @@ pub struct IntelStore {
     realtime: Option<(String, i64, RealtimeHandle)>,
     _watch: Task<()>,
     _realtime_events: Option<Task<()>>,
+    /// The latest intel lookup; a newer one replaces (and cancels) it so an
+    /// older, smaller result can't land after a newer one.
+    intel_lookup: Option<Task<()>>,
 }
 
 impl EventEmitter<IntelEvent> for IntelStore {}
@@ -63,6 +66,7 @@ impl IntelStore {
             realtime: None,
             _watch: watch,
             _realtime_events: None,
+            intel_lookup: None,
         };
         store.sync_realtime(cx);
         if store.is_authenticated() {
@@ -322,11 +326,15 @@ impl IntelStore {
             return;
         }
         let service = self.service.clone();
-        self.run(
-            async move { service.lookup_intel(&ids).await },
-            cx,
-            |_, (), _| {},
-        );
+        let lookup = runtime::spawn(async move { service.lookup_intel(&ids).await });
+        self.intel_lookup = Some(cx.spawn(async move |this, cx| {
+            if let Err(e) = lookup.await {
+                let _ = this.update(cx, |_, cx| {
+                    warn!("[Intel] {}", e);
+                    cx.emit(IntelEvent::Error(e));
+                });
+            }
+        }));
     }
 
     /// Creates, updates or (with no tags and no note) deletes an annotation.

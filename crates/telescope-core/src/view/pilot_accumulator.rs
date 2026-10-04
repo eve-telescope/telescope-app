@@ -1,19 +1,17 @@
-//! Accumulates pilot results streamed from the backend during a scan.
+//! Accumulates pilot results streamed in during a scan.
 
 use std::collections::HashMap;
 
 use crate::models::PilotIntel;
 
-/// Insertion-ordered pilots keyed by character id. Upserts are O(1); an
-/// upsert for a known id replaces the entry in place, keeping its position.
-/// Views sort on their own, so the accumulator only preserves arrival order.
-///
-/// Pilots the backend could not resolve all carry id 0 and therefore share
-/// one slot, exactly like the frontend's `Map` keyed by id did.
+/// Insertion-ordered pilots keyed by [`PilotIntel::row_key`]. Upserts are
+/// O(1); an upsert for a known key replaces the entry in place, keeping its
+/// position. Views sort on their own, so the accumulator only preserves
+/// arrival order.
 #[derive(Debug, Default, Clone)]
 pub struct PilotAccumulator {
     pilots: Vec<PilotIntel>,
-    index: HashMap<i64, usize>,
+    index: HashMap<u64, usize>,
 }
 
 impl PilotAccumulator {
@@ -22,10 +20,10 @@ impl PilotAccumulator {
     }
 
     pub fn upsert(&mut self, pilot: PilotIntel) {
-        match self.index.get(&pilot.character.id) {
+        match self.index.get(&pilot.row_key()) {
             Some(&i) => self.pilots[i] = pilot,
             None => {
-                self.index.insert(pilot.character.id, self.pilots.len());
+                self.index.insert(pilot.row_key(), self.pilots.len());
                 self.pilots.push(pilot);
             }
         }
@@ -50,8 +48,8 @@ impl PilotAccumulator {
         self.pilots.clone()
     }
 
-    pub fn get(&self, character_id: i64) -> Option<&PilotIntel> {
-        self.index.get(&character_id).map(|&i| &self.pilots[i])
+    pub fn get(&self, row_key: u64) -> Option<&PilotIntel> {
+        self.index.get(&row_key).map(|&i| &self.pilots[i])
     }
 
     pub fn clear(&mut self) {
@@ -70,7 +68,7 @@ impl PilotAccumulator {
     fn reindex(&mut self) {
         self.index.clear();
         for (i, p) in self.pilots.iter().enumerate() {
-            self.index.insert(p.character.id, i);
+            self.index.insert(p.row_key(), i);
         }
     }
 }
@@ -158,10 +156,12 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_pilots_share_the_zero_id_slot() {
+    fn unresolved_pilots_are_kept_apart_by_name() {
         let mut acc = PilotAccumulator::new();
         acc.upsert(make(0, "Unknown", "Typo One"));
         acc.upsert(make(0, "Unknown", "Typo Two"));
-        assert_eq!(names(&acc), vec!["Typo Two"]);
+        acc.upsert(make(0, "Unknown", "typo one"));
+        assert_eq!(names(&acc), vec!["typo one", "Typo Two"]);
+        assert_ne!(make(0, "Unknown", "Typo One").row_key(), 0);
     }
 }

@@ -1,4 +1,4 @@
-//! Global shortcut model, stored in settings as a Tauri accelerator string
+//! Global shortcut model, stored in settings as an accelerator string
 //! such as `CommandOrControl+Shift+V`.
 
 use std::fmt;

@@ -1,10 +1,11 @@
 //! TTL key/value cache for API responses, kept in memory and persisted to a
 //! single JSON file. Writes are batched: `set` only marks the cache dirty and
 //! `flush` writes it out, so a large scan doesn't rewrite the file per pilot.
+//! The file is read on a background thread; the first access waits for it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{info, warn};
@@ -25,7 +26,28 @@ struct Inner {
 #[derive(Clone)]
 pub struct Cache {
     path: Option<PathBuf>,
-    inner: Arc<RwLock<Inner>>,
+    inner: Arc<OnceLock<RwLock<Inner>>>,
+}
+
+fn load(path: &Path) -> Inner {
+    let now = now_secs();
+    let entries = std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<HashMap<String, Entry>>(&bytes).ok())
+        .map(|mut entries| {
+            entries.retain(|_, entry| entry.expires_at > now);
+            entries
+        })
+        .unwrap_or_default();
+    info!(
+        "Loaded {} cache entries from {}",
+        entries.len(),
+        path.display()
+    );
+    Inner {
+        entries,
+        dirty: false,
+    }
 }
 
 fn now_secs() -> u64 {
@@ -37,44 +59,38 @@ fn now_secs() -> u64 {
 
 impl Cache {
     pub fn open(path: &Path) -> Self {
-        let now = now_secs();
-        let entries = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<HashMap<String, Entry>>(&bytes).ok())
-            .map(|mut entries| {
-                entries.retain(|_, entry| entry.expires_at > now);
-                entries
+        let inner: Arc<OnceLock<RwLock<Inner>>> = Arc::default();
+        let (loading, file) = (inner.clone(), path.to_path_buf());
+        std::thread::Builder::new()
+            .name("cache-load".into())
+            .spawn(move || {
+                let _ = loading.set(RwLock::new(load(&file)));
             })
-            .unwrap_or_default();
-        info!(
-            "Loaded {} cache entries from {}",
-            entries.len(),
-            path.display()
-        );
+            .expect("failed to start cache loader");
         Self {
             path: Some(path.to_path_buf()),
-            inner: Arc::new(RwLock::new(Inner {
-                entries,
-                dirty: false,
-            })),
+            inner,
         }
     }
 
     pub fn in_memory() -> Self {
-        Self {
-            path: None,
-            inner: Arc::default(),
-        }
+        let inner: Arc<OnceLock<RwLock<Inner>>> = Arc::default();
+        let _ = inner.set(RwLock::default());
+        Self { path: None, inner }
+    }
+
+    fn inner(&self) -> &RwLock<Inner> {
+        self.inner.wait()
     }
 
     pub fn get(&self, key: &str) -> Option<serde_json::Value> {
-        let inner = self.inner.read().ok()?;
+        let inner = self.inner().read().ok()?;
         let entry = inner.entries.get(key)?;
         (entry.expires_at > now_secs()).then(|| entry.value.clone())
     }
 
     pub fn set(&self, key: &str, value: serde_json::Value, ttl_secs: u64) {
-        if let Ok(mut inner) = self.inner.write() {
+        if let Ok(mut inner) = self.inner().write() {
             inner.entries.insert(
                 key.to_string(),
                 Entry {
@@ -88,7 +104,7 @@ impl Cache {
 
     pub fn clear(&self) -> Result<(), String> {
         {
-            let mut inner = self.inner.write().map_err(|e| e.to_string())?;
+            let mut inner = self.inner().write().map_err(|e| e.to_string())?;
             inner.entries.clear();
             inner.dirty = true;
         }
@@ -101,7 +117,7 @@ impl Cache {
             return Ok(());
         };
         let bytes = {
-            let mut inner = self.inner.write().map_err(|e| e.to_string())?;
+            let mut inner = self.inner().write().map_err(|e| e.to_string())?;
             if !inner.dirty {
                 return Ok(());
             }

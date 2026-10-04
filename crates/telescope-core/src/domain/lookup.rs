@@ -1,28 +1,23 @@
 //! Progress reducer and batching policy for the pilot lookup pipeline.
 //!
-//! `commands::lookup` feeds one event per resolved pilot and embeds the
-//! current progress snapshot in each emitted "pilot-batch" event, so the
-//! values here must reproduce the original inline counting exactly:
-//! `current = cache_hits + received`, with the cache pass always running
-//! before any fetches. Batching is transport-only: it decides *when* to
-//! emit, never *what* the progress values are.
+//! `crate::lookup` feeds one event per resolved pilot and sends the current
+//! progress snapshot with each pilot batch: `current = cache_hits +
+//! received`, with the cache pass always running before any fetches.
+//! Batching only decides *when* to send, never *what* the progress values
+//! are.
 
-use serde::Serialize;
-
-/// Cadence of "pilot-batch" emissions. There is exactly one delivery mode:
-/// every result — cached or fetched — streams out on this tick, so the UI
-/// animates identically for hot-cache and fresh scans; a hot cache just
-/// drains the queue at full cadence. The frontend throttles rendering to
-/// ~100ms anyway, so finer-grained events are pure IPC overhead.
+/// Cadence of pilot batches. There is exactly one delivery mode: every
+/// result, cached or fetched, streams out on this tick, so the table fills
+/// the same way for hot-cache and fresh scans; a hot cache just drains the
+/// queue at full cadence. Faster ticks would only cause extra redraws.
 pub const BATCH_INTERVAL_MS: u64 = 100;
 
 /// Upper bound on pilots per batch: a fully cached scan streams as a fast
 /// sequence of bounded batches instead of one teleporting mega-batch.
 pub const MAX_BATCH_SIZE: usize = 25;
 
-/// Progress snapshot embedded in the "pilot-batch" event — field
-/// names/shape are frozen (frontend contract).
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+/// Progress snapshot sent with each pilot batch.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct LookupProgress {
     pub current: usize,
     pub total: usize,

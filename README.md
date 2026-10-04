@@ -1,7 +1,7 @@
 # Telescope
 
 <p align="center">
-  <img src="src-tauri/icons/icon.svg" width="128" height="128" alt="Telescope Logo">
+  <img src="crates/telescope-app/icons/icon.svg" width="128" height="128" alt="Telescope Logo">
 </p>
 
 <p align="center">

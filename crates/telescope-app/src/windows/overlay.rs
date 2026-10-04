@@ -332,15 +332,16 @@ impl OverlayView {
 
     fn render_row(&self, pilot: &PilotIntel, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let id = pilot.character.id;
+        let key = pilot.row_key();
         let index = Stores::get(cx).intel.read(cx).annotation_index();
         let tags = pilot_tags_with_index(pilot, index);
         let z = pilot.zkill.as_ref();
         let c = |col: Col| cell(col).px_0p5();
         let dash = || div().text_color(theme::color(TEXT_3)).child("—");
-        let ticker = |ticker: &Option<String>, name: &Option<String>, key: &'static str| {
+        let ticker = |ticker: &Option<String>, name: &Option<String>, label: &'static str| {
             let tooltip: SharedString = name.clone().unwrap_or_default().into();
             div()
-                .id(SharedString::from(format!("{key}-{id}")))
+                .id(SharedString::from(format!("{label}-{key}")))
                 .truncate()
                 .text_size(px(10.))
                 .text_color(theme::color(TEXT_3))
@@ -354,7 +355,7 @@ impl OverlayView {
         };
 
         div()
-            .id(("overlay-row", id as u64))
+            .id(("overlay-row", key))
             .flex()
             .w_full()
             .items_center()
@@ -387,7 +388,7 @@ impl OverlayView {
                             .child(pilot.character.name.clone()),
                     ),
             )
-            .child(c(COLS[2]).child(tag_strip("overlay-tag", id as u64, &tags, OVERLAY)))
+            .child(c(COLS[2]).child(tag_strip("overlay-tag", key, &tags, OVERLAY)))
             .child(c(COLS[3]).child(ticker(
                 &pilot.character.corporation_ticker,
                 &pilot.character.corporation_name,
@@ -413,9 +414,9 @@ impl OverlayView {
                                 );
                                 let tooltip: SharedString = ship.ship_name.clone().into();
                                 div()
-                                    .id((
-                                        "overlay-ship",
-                                        (id as u64) << 20 | ship.ship_type_id as u64,
+                                    .id(gpui_kit::ElementId::NamedInteger(
+                                        format!("overlay-ship-{}", ship.ship_type_id).into(),
+                                        key,
                                     ))
                                     .size(px(18.))
                                     .rounded_sm()
@@ -445,7 +446,7 @@ impl OverlayView {
                     }),
             )
             .child(c(COLS[6]).child(danger_cell(
-                ("overlay-danger", id as u64).into(),
+                ("overlay-danger", key).into(),
                 pilot,
                 36.,
                 px(11.),
@@ -475,8 +476,11 @@ impl Render for OverlayView {
                             "overlay-rows",
                             self.row_sizes.clone(),
                             |this, range, _, cx| {
-                                let rows: Vec<PilotIntel> = this.rows[range].to_vec();
-                                rows.iter().map(|p| this.render_row(p, cx)).collect()
+                                let rows = std::mem::take(&mut this.rows);
+                                let elements =
+                                    rows[range].iter().map(|p| this.render_row(p, cx)).collect();
+                                this.rows = rows;
+                                elements
                             },
                         )
                         .track_scroll(&self.scroll)

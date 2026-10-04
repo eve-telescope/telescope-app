@@ -1,5 +1,4 @@
-//! Column layout shared by a table's header and its rows, standing in for the
-//! CSS grid templates the Vue app used.
+//! Column layout shared by a table's header and its rows.
 
 use gpui_kit::{Div, Styled as _, div, px};
 

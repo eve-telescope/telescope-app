@@ -47,12 +47,12 @@ const COLS: [Col; 7] = [
 
 pub struct LocalPanel {
     sort: SortState,
-    expanded: Option<i64>,
+    expanded: Option<u64>,
     rows: Vec<PilotIntel>,
     row_sizes: Rc<Vec<Size<Pixels>>>,
     scroll: VirtualListScrollHandle,
     /// The pilot whose intel panel is open, and where it was opened.
-    menu: Option<(i64, Point<Pixels>)>,
+    menu: Option<(u64, Point<Pixels>)>,
     menu_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -115,7 +115,7 @@ impl LocalPanel {
 
     fn row_height(&self, pilot: &PilotIntel) -> f32 {
         let mut height = ROW_HEIGHT;
-        if self.expanded == Some(pilot.character.id) && pilot.zkill.is_some() {
+        if self.expanded == Some(pilot.row_key()) && pilot.zkill.is_some() {
             height += DETAILS_HEIGHT;
         }
         if pilot.error.is_some() {
@@ -136,11 +136,11 @@ impl LocalPanel {
         self.refresh(cx);
     }
 
-    fn toggle_expand(&mut self, id: i64, cx: &mut Context<Self>) {
-        self.expanded = if self.expanded == Some(id) {
+    fn toggle_expand(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.expanded = if self.expanded == Some(key) {
             None
         } else {
-            Some(id)
+            Some(key)
         };
         self.refresh(cx);
     }
@@ -236,7 +236,8 @@ impl LocalPanel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = pilot.character.id;
-        let expanded = self.expanded == Some(id) && pilot.zkill.is_some();
+        let key = pilot.row_key();
+        let expanded = self.expanded == Some(key) && pilot.zkill.is_some();
         let intel = Stores::get(cx).intel.read(cx);
         let resolved = intel.resolve(pilot);
         let tags = pilot_tags(pilot, &resolved);
@@ -247,7 +248,7 @@ impl LocalPanel {
         let z = pilot.zkill.as_ref();
 
         let main_row = div()
-            .id(("pilot-row", id as u64))
+            .id(("pilot-row", key))
             .flex()
             .h(px(ROW_HEIGHT - 1.))
             .bg(theme::color(BG_1))
@@ -255,11 +256,15 @@ impl LocalPanel {
             .border_l(px(3.))
             .border_color(threat)
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_expand(id, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_expand(key, cx)))
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.menu = Some((id, event.position));
+                    // Unresolved names have no character to annotate.
+                    if id == 0 {
+                        return;
+                    }
+                    this.menu = Some((key, event.position));
                     window.focus(&this.menu_focus, cx);
                     cx.notify();
                 }),
@@ -285,7 +290,7 @@ impl LocalPanel {
             .child(
                 row_cell(COLS[2])
                     .gap_1()
-                    .child(tag_strip("row-tag", id as u64, &tags, TABLE))
+                    .child(tag_strip("row-tag", key, &tags, TABLE))
                     .children(notes),
             )
             .child(
@@ -316,7 +321,10 @@ impl LocalPanel {
                             let tooltip: SharedString =
                                 format!("{} ({})", ship.ship_name, ship.kills).into();
                             div()
-                                .id(("row-ship", (id as u64) << 20 | ship.ship_type_id as u64))
+                                .id(gpui_kit::ElementId::NamedInteger(
+                                    format!("row-ship-{}", ship.ship_type_id).into(),
+                                    key,
+                                ))
                                 .size(px(26.))
                                 .rounded_sm()
                                 .overflow_hidden()
@@ -341,7 +349,7 @@ impl LocalPanel {
                 }),
             )
             .child(row_cell(COLS[6]).child(danger_cell(
-                ("row-danger", id as u64).into(),
+                ("row-danger", key).into(),
                 pilot,
                 80.,
                 px(14.),
@@ -389,10 +397,14 @@ impl LocalPanel {
                     "pilot-rows",
                     self.row_sizes.clone(),
                     |this, range, window, cx| {
-                        let rows: Vec<PilotIntel> = this.rows[range].to_vec();
-                        rows.iter()
+                        // Borrow the rows out instead of cloning them every frame.
+                        let rows = std::mem::take(&mut this.rows);
+                        let elements = rows[range]
+                            .iter()
                             .map(|pilot| this.render_row(pilot, window, cx))
-                            .collect()
+                            .collect();
+                        this.rows = rows;
+                        elements
                     },
                 )
                 .track_scroll(&self.scroll)
@@ -578,7 +590,7 @@ impl LocalPanel {
 
     fn render_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (id, position) = self.menu?;
-        let pilot = self.rows.iter().find(|p| p.character.id == id)?;
+        let pilot = self.rows.iter().find(|p| p.row_key() == id)?;
         let this = cx.entity().downgrade();
         let close: Close = Rc::new(move |_, cx| {
             let _ = this.update(cx, |this, cx| this.close_menu(cx));

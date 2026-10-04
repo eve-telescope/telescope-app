@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
+
+const INTEL_LOOKUP_INTERVAL: Duration = Duration::from_millis(600);
 
 use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Task};
 use log::{error, warn};
@@ -187,12 +190,24 @@ impl ScanStore {
         });
 
         self.lookup_task = Some(cx.spawn(async move |this, cx| {
+            let mut last_intel = Instant::now();
+            let mut intel_ids = 0;
             while let Some(batch) = rx.recv().await {
                 let applied = this.update(cx, |this, cx| {
                     for result in batch.pilots {
                         this.pilots.upsert(result.pilot);
                     }
                     this.progress = Some(batch.progress);
+                    // Fetch annotations while results stream in rather than
+                    // only at the end, throttled since each lookup covers all
+                    // ids seen so far.
+                    let ids = this.entity_ids();
+                    if ids.len() > intel_ids && last_intel.elapsed() >= INTEL_LOOKUP_INTERVAL {
+                        intel_ids = ids.len();
+                        last_intel = Instant::now();
+                        this.intel
+                            .update(cx, |intel, cx| intel.lookup_intel(ids, cx));
+                    }
                     cx.notify();
                 });
                 if applied.is_err() {

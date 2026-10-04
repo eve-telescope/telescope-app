@@ -1,4 +1,4 @@
-//! The Telescope palette (ported from the Vue app's global.css) and the
+//! The Telescope palette and the
 //! gpui-kit component theme built from it.
 
 use std::rc::Rc;
@@ -33,7 +33,7 @@ pub fn color(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
-/// `hex` with an alpha byte, like the `#rrggbbaa` tints the Vue app used.
+/// `hex` with an alpha byte, like a `#rrggbbaa` color.
 pub fn tint(hex: u32, alpha: u8) -> Hsla {
     rgba((hex << 8) | alpha as u32).into()
 }

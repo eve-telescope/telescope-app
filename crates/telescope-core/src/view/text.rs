@@ -1,4 +1,5 @@
-//! String helpers that mirror JavaScript semantics the frontend relied on.
+//! String helpers with JavaScript trimming and comparison semantics, so
+//! names sort and match the same way they did in the original app.
 
 use std::cmp::Ordering;
 

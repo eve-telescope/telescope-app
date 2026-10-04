@@ -87,6 +87,21 @@ pub struct PilotIntel {
     pub error: Option<String>,
 }
 
+impl PilotIntel {
+    /// Stable identity for a result row: the character id, or for names ESI
+    /// could not resolve (id 0) a hash of the lowercased name with the top
+    /// bit set, so it can't collide with a real id.
+    pub fn row_key(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        if self.character.id != 0 {
+            return self.character.id as u64;
+        }
+        let mut hasher = DefaultHasher::new();
+        self.character.name.to_lowercase().hash(&mut hasher);
+        hasher.finish() | (1 << 63)
+    }
+}
+
 // Intel Network models
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

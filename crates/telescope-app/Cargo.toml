@@ -43,5 +43,5 @@ icons = [
 deep-link-protocols = [{ schemes = ["telescope"] }]
 
 [package.metadata.packager.macos]
-# Ad-hoc signature, as the Tauri release used.
+# Ad-hoc signature; there is no Developer ID certificate.
 signing-identity = "-"

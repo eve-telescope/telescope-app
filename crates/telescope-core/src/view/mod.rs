@@ -1,4 +1,4 @@
-//! Pure view-layer logic ported from the Vue frontend: formatting, sorting,
+//! Pure view-layer logic: formatting, sorting,
 //! filtering, counting and tag derivation for pilot lists, d-scan summaries
 //! and network dialogs. Nothing here knows about the UI toolkit.
 
