@@ -13,7 +13,7 @@ icon_assets!(
     ]
 );
 
-const LOGO: &[u8] = include_bytes!("../icons/icon.svg");
+const LOGO: &[u8] = include_bytes!("../icons/logo.png");
 
 macro_rules! brackets {
     ($($name:literal),* $(,)?) => {
@@ -49,7 +49,7 @@ pub struct AppAssets;
 
 impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        if path == "logo.svg" {
+        if path == "logo.png" {
             return Ok(Some(Cow::Borrowed(LOGO)));
         }
         if let Some(name) = path
