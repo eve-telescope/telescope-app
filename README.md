@@ -22,15 +22,19 @@
 
 ## Features
 
-- **Instant Lookup** — Paste local chat, get instant threat assessment
-- **Threat Analysis** — Kill history, favorite ships, activity patterns, danger ratings
-- **Share Intel** — Share scans via link, your corp mates can open results instantly
-- **Global Hotkey** — Configurable shortcut to scan from clipboard anywhere
-- **Offline Ready** — Data cached locally for fast repeat lookups
+- **Local scans**: paste local chat and pilots stream in as they are looked up
+- **Danger score**: one 0 to 100 rating per pilot, weighted toward small-gang lethality and experience, with a breakdown on hover
+- **Pilot roles**: what each pilot flies (recons, marauders, cynos, capitals and more) shown as in-game hull brackets
+- **D-scan**: ship counts by type and class, sorted by hull size
+- **Overlay**: a compact always-on-top window that mirrors your scan and filters
+- **Intel networks**: tag pilots, corporations and alliances and share scans with your group in real time
+- **Share links**: share a scan as a link your corp mates can open
+- **Global hotkey**: scan the clipboard from anywhere, even while EVE has focus
+- **Native and fast**: built in Rust with GPUI, with lookups cached locally
 
 ## Screenshots
 
-<img width="1612" height="912" alt="app" src="https://github.com/user-attachments/assets/b361cd45-ce28-4651-891f-2850182794c8" />
+<img src="docs/screenshot.png" alt="Telescope showing a local scan">
 
 ## Installation
 
@@ -53,14 +57,14 @@ chmod +x Telescope_*.AppImage
 
 ## Usage
 
-1. **Copy pilots** — Select pilot names in EVE's local chat and copy (Ctrl/Cmd+C)
-2. **Paste & Scan** — Paste into Telescope and click "SCAN" (or use the global hotkey)
-3. **Review threats** — See threat levels, kill stats, and activity patterns
-4. **Share** — Click "SHARE SCAN" to copy a link your corp mates can open
+1. **Copy pilots**: select pilot names in EVE's local chat (or the d-scan window) and copy with Ctrl/Cmd+C
+2. **Paste and scan**: paste into Telescope and click SCAN, or use the global hotkey
+3. **Review**: sort by danger, hover a score for its breakdown, click a row for ships and activity, right-click to tag
+4. **Share**: click SHARE SCAN to copy a link, or connect an intel network in Settings
 
 ### Global Hotkey
 
-Configure a global hotkey in the app to instantly scan your clipboard from anywhere. Default: `Cmd+Shift+V` (macOS) / `Ctrl+Shift+V` (Windows/Linux). On Linux the global hotkey needs an X11 session.
+Set a global hotkey in Settings to instantly scan your clipboard from anywhere. Default: `Cmd+Shift+V` (macOS) / `Ctrl+Shift+V` (Windows/Linux). On Linux the global hotkey needs an X11 session.
 
 ## Development
 
@@ -102,10 +106,17 @@ telescope-app/
 │   └── telescope-app/      # GPUI desktop app
 │       ├── src/state/      # Shared scan, filter, intel and settings state
 │       ├── src/views/      # Panels and widgets
-│       ├── src/windows/    # Main, overlay and about windows
+│       ├── src/windows/    # Main, overlay, settings and about windows
 │       └── icons/          # App icons
 └── Cargo.toml
 ```
+
+### Releasing
+
+1. Bump `version` in the root `Cargo.toml` and merge it into `main`
+2. Push `main` to the `release` branch: `git push origin main:release`
+3. The Release workflow builds the installers for macOS, Windows and Linux and uploads them to a draft release
+4. Review the draft on GitHub and publish it. Installed apps pick up the new version on their next update check
 
 ## Tech Stack
 
@@ -116,7 +127,7 @@ telescope-app/
 
 ## Related
 
-- [telescope-web](https://github.com/eve-telescope/telescope-web) — Web interface for sharing scans
+- [telescope-web](https://github.com/eve-telescope/telescope-web): web interface for sharing scans
 
 ## License
 
