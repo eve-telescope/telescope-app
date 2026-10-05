@@ -7023,7 +7023,7 @@ dependencies = [
 
 [[package]]
 name = "telescope-app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -7044,7 +7044,7 @@ dependencies = [
 
 [[package]]
 name = "telescope-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
