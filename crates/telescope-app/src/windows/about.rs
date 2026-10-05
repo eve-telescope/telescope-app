@@ -109,7 +109,7 @@ impl Render for AboutView {
                             .flex()
                             .items_center()
                             .gap_4()
-                            .child(img("logo.svg").size(px(64.)))
+                            .child(img("logo.png").size(px(64.)))
                             .child(
                                 div()
                                     .child(div().text_lg().font_weight(FontWeight::BOLD).child("TELESCOPE"))

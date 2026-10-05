@@ -3,7 +3,7 @@ use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Global,
     InteractiveElement as _, IntoElement, ParentElement as _, Render,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, WindowBounds,
-    WindowOptions, div, point, px, size,
+    WindowOptions, div, img, point, px, size,
 };
 use telescope_core::view::scan_input::ScanInputKind;
 
@@ -84,11 +84,7 @@ impl MainView {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        Icon::new(IconName::Crosshair)
-                            .size_4()
-                            .text_color(theme::color(CYAN)),
-                    )
+                    .child(img("logo.png").size(px(18.)))
                     .child(
                         div()
                             .text_size(px(10.))
