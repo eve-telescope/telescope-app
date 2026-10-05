@@ -19,26 +19,13 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-          cache: 'npm'
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Format frontend
-        run: npm run format
-
       - name: Format Rust
         run: cargo fmt --all
-        working-directory: src-tauri
 
       - name: Commit formatting fixes
         uses: stefanzweifel/git-auto-commit-action@v7

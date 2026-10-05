@@ -7,59 +7,77 @@ on:
       - release
 
 jobs:
-  publish-tauri:
+  publish:
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: ""
-          - platform: "windows-latest"
-            args: ""
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            formats: dmg
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            formats: dmg
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            formats: deb,appimage
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            formats: nsis
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
+          sudo apt-get install -y gcc g++ clang pkg-config libfontconfig-dev libwayland-dev \
+            libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan1
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          key: ${{ matrix.target }}
 
-      - name: Install frontend dependencies
-        run: npm install
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
 
-      - uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: "-"
-          LZMA_API_STATIC: "1"
+      - name: Build
+        run: cargo build --release -p telescope-app --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        working-directory: crates/telescope-app
+        run: |
+          cargo packager --release --target ${{ matrix.target }} \
+            --formats ${{ matrix.formats }} --out-dir ../../dist
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "telescope-app") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to draft release
+        uses: softprops/action-gh-release@v3
         with:
-          tagName: v__VERSION__
-          releaseName: "Telescope v__VERSION__"
-          releaseBody: "See the assets to download and install Telescope."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Telescope v${{ steps.version.outputs.version }}
+          body: See the assets to download and install Telescope.
+          draft: true
+          files: |
+            dist/*.dmg
+            dist/*.deb
+            dist/*.AppImage
+            dist/*-setup.exe

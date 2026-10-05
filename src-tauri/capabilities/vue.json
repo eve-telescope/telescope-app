@@ -1,5 +1,0 @@
-{
-    "identifier": "vue",
-    "windows": ["*"],
-    "permissions": ["vue:default", "core:event:default"]
-}
