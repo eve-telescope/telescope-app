@@ -16,16 +16,20 @@ jobs:
         include:
           - platform: macos-latest
             target: aarch64-apple-darwin
-            formats: dmg
+            formats: app,dmg
+            update: macos-aarch64
           - platform: macos-latest
             target: x86_64-apple-darwin
-            formats: dmg
+            formats: app,dmg
+            update: macos-x86_64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             formats: deb,appimage
+            update: linux-x86_64
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             formats: nsis
+            update: windows-x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -69,6 +73,30 @@ jobs:
             | jq -r '.packages[] | select(.name == "telescope-app") | .version')
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # The package the app updates itself from (see
+      # crates/telescope-core/src/update.rs), named after the platform key
+      # in latest.json.
+      - name: Update package
+        shell: bash
+        run: |
+          mkdir update
+          name="telescope-update-${{ steps.version.outputs.version }}-${{ matrix.update }}"
+          case "${{ matrix.update }}" in
+            macos-*)
+              test -d dist/Telescope.app
+              COPYFILE_DISABLE=1 tar czf "update/$name.app.tar.gz" -C dist Telescope.app
+              ;;
+            linux-*) gzip -9 -c dist/*.AppImage > "update/$name.AppImage.gz" ;;
+            windows-*)
+              gzip -9 -c "target/${{ matrix.target }}/release/telescope.exe" > "update/$name.exe.gz"
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-${{ matrix.update }}
+          path: update/*
+
       - name: Upload to draft release
         uses: softprops/action-gh-release@v3
         with:
@@ -81,3 +109,47 @@ jobs:
             dist/*.deb
             dist/*.AppImage
             dist/*-setup.exe
+            update/*
+
+  # Signs latest.json, which lists every platform's update package. The app
+  # only reads it from the latest published release, so it goes live when
+  # the draft is published.
+  manifest:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: update-*
+          path: update
+          merge-multiple: true
+
+      - name: Sign and upload the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.TELESCOPE_UPDATE_SIGNING_KEY }}
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "telescope-app") | .version')
+          entry() {
+            f=$(cd update && ls telescope-update-*-"$1".*)
+            jq -n --arg name "$f" --arg sha256 "$(sha256sum "update/$f" | cut -d' ' -f1)" '{$name, $sha256}'
+          }
+          jq -n --arg version "$version" \
+            --argjson macos_aarch64 "$(entry macos-aarch64)" \
+            --argjson macos_x86_64 "$(entry macos-x86_64)" \
+            --argjson linux_x86_64 "$(entry linux-x86_64)" \
+            --argjson windows_x86_64 "$(entry windows-x86_64)" \
+            '{$version, files: {"macos-aarch64": $macos_aarch64, "macos-x86_64": $macos_x86_64, "linux-x86_64": $linux_x86_64, "windows-x86_64": $windows_x86_64}}' \
+            > latest.json
+          cat latest.json
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > signing.pem
+          openssl pkeyutl -sign -inkey signing.pem -rawin -in latest.json \
+            | od -An -v -tx1 | tr -d ' \n' > latest.json.sig
+          rm signing.pem
+          gh release upload "v$version" latest.json latest.json.sig --clobber

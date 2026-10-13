@@ -19,6 +19,7 @@ use simplelog::{
     ColorChoice, CombinedLogger, ConfigBuilder, TermLogger, TerminalMode, WriteLogger,
 };
 use telescope_core::paths::AppPaths;
+use telescope_core::update;
 
 use services::Services;
 use single_instance::Startup;
@@ -48,6 +49,11 @@ fn main() {
     let paths = AppPaths::resolve();
     init_logging(&paths);
     info!("Telescope v{} starting", env!("CARGO_PKG_VERSION"));
+
+    if std::env::var_os(update::RESTARTED_ENV).is_some() {
+        single_instance::wait_for_exit(&paths.data);
+    }
+    update::clean_up();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let forwarded = match single_instance::acquire(&paths.data, &args) {
@@ -79,6 +85,7 @@ fn main() {
         windows::main_window::open(cx);
         windows::deep_link::init(args, forwarded, cx);
         windows::platform::init(cx);
+        windows::update::init(cx);
 
         cx.on_app_quit(|cx: &mut App| {
             let cache = Services::get(cx).cache.clone();
