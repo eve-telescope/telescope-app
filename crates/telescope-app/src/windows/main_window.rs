@@ -165,6 +165,9 @@ fn title_button(
         .justify_center()
         .rounded(px(7.))
         .cursor_pointer()
+        // Without this the title bar's drag area sits under the button, and
+        // on Windows the click starts a window move instead.
+        .occlude()
         .map(|el| {
             if active {
                 el.bg(theme::tint(CYAN, 0x26))
