@@ -4,6 +4,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use interprocess::local_socket::{
     GenericNamespaced, ListenerOptions, Stream, ToNsName, traits::ListenerExt, traits::Stream as _,
@@ -64,4 +65,19 @@ pub fn acquire(data_dir: &Path, args: &[String]) -> Startup {
         Err(e) => warn!("Single-instance listener unavailable: {}", e),
     }
     Startup::Primary(rx)
+}
+
+/// After a restart for an update: waits up to ten seconds for the old
+/// instance to quit, so this one takes over instead of handing off to it.
+pub fn wait_for_exit(data_dir: &Path) {
+    let Ok(name) = socket_name(data_dir).to_ns_name::<GenericNamespaced>() else {
+        return;
+    };
+    for _ in 0..100 {
+        if Stream::connect(name.clone()).is_err() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    warn!("The previous instance is still running");
 }
