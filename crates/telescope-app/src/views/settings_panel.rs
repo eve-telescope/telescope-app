@@ -1,4 +1,5 @@
-//! The General settings page: shortcut, account, local data and about.
+//! The General settings page: shortcuts, stats period, account, local data
+//! and about.
 
 use std::time::Duration;
 
@@ -12,19 +13,21 @@ use gpui_kit::{
     Styled as _, Subscription, Task, Window, div, px,
 };
 use log::{error, info};
+use telescope_core::models::StatsPeriod;
 
 use crate::services::Services;
 use crate::state::Stores;
 use crate::theme::{self, BG_0, GREEN};
 use crate::ui::{Icon, IconName, mono};
 use crate::views::settings_ui::{group, page, row};
-use crate::views::shortcut_editor::ShortcutEditor;
+use crate::views::shortcut_editor::{ShortcutEditor, ShortcutSlot};
 use crate::windows::about;
 
 const FEEDBACK: Duration = Duration::from_secs(2);
 
 pub struct SettingsPanel {
     shortcut: Entity<ShortcutEditor>,
+    period_shortcut: Entity<ShortcutEditor>,
     token: Entity<InputState>,
     show_token_input: bool,
     login_copied: bool,
@@ -48,7 +51,8 @@ impl SettingsPanel {
             cx.observe(&stores.settings, |_, _, cx| cx.notify()),
         ];
         Self {
-            shortcut: cx.new(|cx| ShortcutEditor::new(window, cx)),
+            shortcut: cx.new(|cx| ShortcutEditor::new(ShortcutSlot::Scan, window, cx)),
+            period_shortcut: cx.new(|cx| ShortcutEditor::new(ShortcutSlot::Period, window, cx)),
             token,
             show_token_input: false,
             login_copied: false,
@@ -312,6 +316,30 @@ impl SettingsPanel {
     }
 }
 
+fn period_picker(cx: &App) -> impl IntoElement {
+    let current = Stores::get(cx).settings.read(cx).get().stats_period;
+    div()
+        .flex()
+        .gap_1()
+        .children(StatsPeriod::ALL.map(|period| {
+            Button::new(period.short())
+                .small()
+                .label(period.label())
+                .map(|button| {
+                    if period == current {
+                        button.primary()
+                    } else {
+                        button.outline()
+                    }
+                })
+                .on_click(move |_, _, cx| {
+                    Stores::get(cx).settings.update(cx, |settings, cx| {
+                        settings.update(cx, |s| s.stats_period = period)
+                    })
+                })
+        }))
+}
+
 impl Render for SettingsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let shortcut_note = if cfg!(target_os = "linux") {
@@ -324,6 +352,23 @@ impl Render for SettingsPanel {
                 .child(self.shortcut.clone())
                 .into_any_element(),
         ];
+        let stats = vec![
+            row(
+                "Period",
+                Some(
+                    "How far back ships, systems and role tags look. The danger score always uses the last 90 days."
+                        .into(),
+                ),
+            )
+            .child(period_picker(cx))
+            .into_any_element(),
+            row(
+                "Period shortcut",
+                Some("Switches to the next period from anywhere.".into()),
+            )
+            .child(self.period_shortcut.clone())
+            .into_any_element(),
+        ];
         let account = self.account_rows(cx);
         let data = self.data_rows(cx);
         let about = self.about_rows();
@@ -334,8 +379,9 @@ impl Render for SettingsPanel {
             .overflow_y_scroll()
             .bg(theme::color(BG_0))
             .child(
-                page("General", "Shortcut, account and local data.")
+                page("General", "Shortcuts, stats, account and local data.")
                     .child(group(Some("Scanning"), scanning))
+                    .child(group(Some("Stats"), stats))
                     .child(group(Some("Account"), account))
                     .child(group(Some("Data"), data))
                     .child(group(Some("About"), about)),

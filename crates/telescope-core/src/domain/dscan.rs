@@ -12,6 +12,7 @@ const SHIP_CATEGORY_ID: i64 = 6;
 pub struct SdeIndex {
     by_type_id: HashMap<i64, ScanTypeIndexEntry>,
     name_to_type_id: HashMap<String, i64>,
+    system_names: HashMap<i64, String>,
 }
 
 impl SdeIndex {
@@ -27,11 +28,21 @@ impl SdeIndex {
         SdeIndex {
             by_type_id,
             name_to_type_id,
+            system_names: HashMap::new(),
         }
+    }
+
+    pub fn with_system_names(mut self, system_names: HashMap<i64, String>) -> Self {
+        self.system_names = system_names;
+        self
     }
 
     pub fn get(&self, type_id: i64) -> Option<&ScanTypeIndexEntry> {
         self.by_type_id.get(&type_id)
+    }
+
+    pub fn system_name(&self, system_id: i64) -> Option<&str> {
+        self.system_names.get(&system_id).map(String::as_str)
     }
 
     /// Classify a scan row by type ID, falling back to a name lookup.

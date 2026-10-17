@@ -5,19 +5,20 @@ use gpui_kit::{
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, div, img, px,
     relative,
 };
-use telescope_core::models::{ActivityHeatmap, PilotIntel, ZkillStats};
+use telescope_core::models::{ActivityHeatmap, PilotIntel, ShipStats, SystemStats, ZkillStats};
 use telescope_core::view::format::{format_isk, ship_icon_url};
 
+use crate::state::Stores;
 use crate::theme::{self, BG_2, BG_3, BORDER, CYAN, GREEN, ORANGE, RED, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::{Icon, IconName, mono};
-use crate::views::stats::group_thousands;
+use crate::views::stats::{group_thousands, period_title, period_tooltip};
 
 /// Height of the expanded panel, fixed so the virtual list can size rows.
 pub const DETAILS_HEIGHT: f32 = 236.;
 
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-fn heading(text: &'static str) -> Div {
+fn heading(text: impl IntoElement) -> Div {
     div()
         .mb_2()
         .pb_1()
@@ -118,15 +119,15 @@ fn combat(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
         )
 }
 
-fn ships(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
-    if stats.top_ships.is_empty() {
+fn ships(ships: &[ShipStats], character_id: i64) -> impl IntoElement {
+    if ships.is_empty() {
         return empty_note("No ship data").into_any_element();
     }
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .children(stats.top_ships.iter().take(5).map(|ship| {
+        .children(ships.iter().take(5).map(|ship| {
             let base = format!(
                 "https://zkillboard.com/character/{character_id}/ship/{}/",
                 ship.ship_type_id
@@ -193,15 +194,15 @@ fn ships(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
         .into_any_element()
 }
 
-fn systems(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
-    if stats.top_systems.is_empty() {
+fn systems(systems: &[SystemStats], character_id: i64) -> impl IntoElement {
+    if systems.is_empty() {
         return empty_note("No system data").into_any_element();
     }
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .children(stats.top_systems.iter().take(5).map(|system| {
+        .children(systems.iter().take(5).map(|system| {
             let base = format!(
                 "https://zkillboard.com/character/{character_id}/system/{}/",
                 system.system_id
@@ -219,7 +220,11 @@ fn systems(stats: &ZkillStats, character_id: i64) -> impl IntoElement {
                     div()
                         .max_w(px(120.))
                         .truncate()
-                        .child(system.system_name.clone()),
+                        .child(if system.system_name.is_empty() {
+                            system.system_id.to_string()
+                        } else {
+                            system.system_name.clone()
+                        }),
                 )
                 .child(
                     div()
@@ -390,8 +395,19 @@ pub fn activity_heatmap(activity: &ActivityHeatmap, character_id: i64) -> impl I
         )
 }
 
-pub fn pilot_details(pilot: &PilotIntel, stats: &ZkillStats, _cx: &App) -> impl IntoElement {
+pub fn pilot_details(pilot: &PilotIntel, stats: &ZkillStats, cx: &App) -> impl IntoElement {
     let id = pilot.character.id;
+    let period = Stores::get(cx).settings.read(cx).get().stats_period;
+    let (systems_period, top_systems) = stats.systems(period);
+    let systems_tooltip = if systems_period == period {
+        period_tooltip(period)
+    } else {
+        format!(
+            "zKillboard has no systems for the {}, so this shows the {}. Click to switch.",
+            period.label().to_lowercase(),
+            systems_period.label().to_lowercase()
+        )
+    };
     div()
         .h(px(DETAILS_HEIGHT))
         .px_4()
@@ -412,19 +428,35 @@ pub fn pilot_details(pilot: &PilotIntel, stats: &ZkillStats, _cx: &App) -> impl 
         .child(
             div()
                 .flex_1()
-                .child(heading("SHIPS"))
-                .child(ships(stats, id)),
+                .child(heading(period_title(
+                    ("details-ships-period", id as u64),
+                    "SHIPS",
+                    period,
+                    period_tooltip(period),
+                )))
+                .child(ships(stats.ships(period), id)),
         )
         .child(
             div()
                 .flex_1()
-                .child(heading("SYSTEMS"))
-                .child(systems(stats, id)),
+                .child(heading(period_title(
+                    ("details-systems-period", id as u64),
+                    "SYSTEMS",
+                    systems_period,
+                    systems_tooltip,
+                )))
+                .child(systems(top_systems, id)),
         )
         .child(
             div()
                 .flex_1()
-                .child(heading("ACTIVE HOURS"))
+                .child(heading(
+                    div()
+                        .flex()
+                        .gap_1()
+                        .child("ACTIVE HOURS")
+                        .child(div().text_color(theme::color(CYAN)).child("90D")),
+                ))
                 .child(match &stats.activity {
                     Some(activity) => activity_heatmap(activity, id).into_any_element(),
                     None => empty_note("No activity data").into_any_element(),

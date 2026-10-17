@@ -27,7 +27,7 @@ use crate::views::grid::{Col, cell};
 use crate::views::local_panel::portrait;
 use crate::views::motion::{self, Arrivals};
 use crate::views::pilot_details::zkill_character_url;
-use crate::views::stats::danger_cell;
+use crate::views::stats::{danger_cell, period_title, period_tooltip};
 use crate::views::tags::{OVERLAY, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 33.;
@@ -336,7 +336,15 @@ impl OverlayView {
             .child(c(COLS[2]).child(self.header(SortKey::Tags, "TAGS", false, cx)))
             .child(c(COLS[3]).child(self.header(SortKey::Corp, "CORP", false, cx)))
             .child(c(COLS[4]).child(self.header(SortKey::Alliance, "ALLY", false, cx)))
-            .child(c(COLS[5]).child("SHIPS"))
+            .child(c(COLS[5]).child({
+                let period = Stores::get(cx).settings.read(cx).get().stats_period;
+                period_title(
+                    "overlay-ships-period",
+                    "SHIPS",
+                    period,
+                    period_tooltip(period),
+                )
+            }))
             .child(c(COLS[6]).child(self.header(SortKey::Danger, "DANGER", true, cx)))
     }
 
@@ -351,7 +359,8 @@ impl OverlayView {
         let key = pilot.row_key();
         let index = Stores::get(cx).intel.read(cx).annotation_index();
         let tags = pilot_tags_with_index(pilot, index);
-        let z = pilot.zkill.as_ref();
+        let period = Stores::get(cx).settings.read(cx).get().stats_period;
+        let ships = pilot.zkill.as_ref().map_or(&[][..], |z| z.ships(period));
         let c = |col: Col| cell(col).px_0p5();
         let dash = || div().text_color(theme::color(TEXT_3)).child("—");
         let ticker = |ticker: &Option<String>, name: &Option<String>, label: &'static str| {
@@ -417,50 +426,48 @@ impl OverlayView {
                 "overlay-ally",
             )))
             .child(
-                c(COLS[5])
-                    .gap_0p5()
-                    .child(match z.filter(|z| !z.top_ships.is_empty()) {
-                        Some(z) => div()
-                            .flex()
-                            .items_center()
-                            .gap_0p5()
-                            .children(z.top_ships.iter().take(3).map(|ship| {
-                                let url = format!(
-                                    "https://zkillboard.com/character/{id}/ship/{}/",
-                                    ship.ship_type_id
-                                );
-                                let tooltip: SharedString = ship.ship_name.clone().into();
+                c(COLS[5]).gap_0p5().child(match ships {
+                    [] => dash().into_any_element(),
+                    ships => div()
+                        .flex()
+                        .items_center()
+                        .gap_0p5()
+                        .children(ships.iter().take(3).map(|ship| {
+                            let url = format!(
+                                "https://zkillboard.com/character/{id}/ship/{}/",
+                                ship.ship_type_id
+                            );
+                            let tooltip: SharedString = ship.ship_name.clone().into();
+                            div()
+                                .id(gpui_kit::ElementId::NamedInteger(
+                                    format!("overlay-ship-{}", ship.ship_type_id).into(),
+                                    key,
+                                ))
+                                .size(px(18.))
+                                .rounded_sm()
+                                .overflow_hidden()
+                                .bg(theme::color(BG_3))
+                                .hover(|s| s.border_1().border_color(theme::color(CYAN)))
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(tooltip.clone())
+                                        .build(window, cx)
+                                })
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    cx.open_url(&url)
+                                })
+                                .child(img(ship_icon_url(ship.ship_type_id, 32)).size_full())
+                        }))
+                        .when(ships.len() > 3, |el| {
+                            el.child(
                                 div()
-                                    .id(gpui_kit::ElementId::NamedInteger(
-                                        format!("overlay-ship-{}", ship.ship_type_id).into(),
-                                        key,
-                                    ))
-                                    .size(px(18.))
-                                    .rounded_sm()
-                                    .overflow_hidden()
-                                    .bg(theme::color(BG_3))
-                                    .hover(|s| s.border_1().border_color(theme::color(CYAN)))
-                                    .tooltip(move |window, cx| {
-                                        gpui_kit::component::tooltip::Tooltip::new(tooltip.clone())
-                                            .build(window, cx)
-                                    })
-                                    .on_click(move |_, _, cx| {
-                                        cx.stop_propagation();
-                                        cx.open_url(&url)
-                                    })
-                                    .child(img(ship_icon_url(ship.ship_type_id, 32)).size_full())
-                            }))
-                            .when(z.top_ships.len() > 3, |el| {
-                                el.child(
-                                    div()
-                                        .text_size(px(9.))
-                                        .text_color(theme::color(TEXT_3))
-                                        .child(format!("+{}", z.top_ships.len() - 3)),
-                                )
-                            })
-                            .into_any_element(),
-                        None => dash().into_any_element(),
-                    }),
+                                    .text_size(px(9.))
+                                    .text_color(theme::color(TEXT_3))
+                                    .child(format!("+{}", ships.len() - 3)),
+                            )
+                        })
+                        .into_any_element(),
+                }),
             )
             .child(c(COLS[6]).child(danger_cell(
                 ("overlay-danger", key).into(),

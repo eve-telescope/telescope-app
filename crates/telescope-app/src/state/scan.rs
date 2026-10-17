@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 
 const INTEL_LOOKUP_INTERVAL: Duration = Duration::from_millis(600);
 
-use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Task};
+use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
 use log::{error, warn};
 use telescope_core::domain::lookup::LookupProgress;
 use telescope_core::lookup::{PilotBatch, lookup_pilots};
-use telescope_core::models::{DscanParseResult, PilotIntel, SdeStatus};
+use telescope_core::models::{DscanParseResult, PilotIntel, SdeStatus, StatsPeriod};
 use telescope_core::view::pilot_accumulator::PilotAccumulator;
 use telescope_core::view::scan_input::{ScanInputKind, detect_scan_input_kind, split_pilot_names};
 
@@ -15,6 +15,7 @@ use crate::runtime;
 use crate::services::Services;
 use crate::state::filters::FilterStore;
 use crate::state::intel::IntelStore;
+use crate::state::settings::SettingsStore;
 
 pub enum ScanEvent {
     /// A scan of this kind started; the main window switches to its tab.
@@ -27,6 +28,8 @@ pub struct ScanStore {
     intel: Entity<IntelStore>,
     filters: Entity<FilterStore>,
     pilots: PilotAccumulator,
+    /// The stats period from the settings, which every pilot's tags follow.
+    period: StatsPeriod,
     loading: bool,
     progress: Option<LookupProgress>,
     dscan: Option<DscanParseResult>,
@@ -37,6 +40,7 @@ pub struct ScanStore {
     sde_status: Option<SdeStatus>,
     sde_syncing: bool,
     sde_task: Option<Task<()>>,
+    _settings: Option<Subscription>,
 }
 
 impl EventEmitter<ScanEvent> for ScanStore {}
@@ -47,6 +51,7 @@ impl ScanStore {
             intel,
             filters,
             pilots: PilotAccumulator::new(),
+            period: StatsPeriod::default(),
             loading: false,
             progress: None,
             dscan: None,
@@ -57,7 +62,24 @@ impl ScanStore {
             sde_status: None,
             sde_syncing: false,
             sde_task: None,
+            _settings: None,
         }
+    }
+
+    fn upsert(&mut self, mut pilot: PilotIntel) {
+        pilot.set_period(self.period);
+        self.pilots.upsert(pilot);
+    }
+
+    fn set_period(&mut self, period: StatsPeriod, cx: &mut Context<Self>) {
+        if period == self.period {
+            return;
+        }
+        self.period = period;
+        for pilot in self.pilots.iter_mut() {
+            pilot.set_period(period);
+        }
+        cx.notify();
     }
 
     pub fn sde_status(&self) -> Option<&SdeStatus> {
@@ -195,7 +217,7 @@ impl ScanStore {
             while let Some(batch) = rx.recv().await {
                 let applied = this.update(cx, |this, cx| {
                     for result in batch.pilots {
-                        this.pilots.upsert(result.pilot);
+                        this.upsert(result.pilot);
                     }
                     this.progress = Some(batch.progress);
                     // Fetch annotations while results stream in rather than
@@ -222,7 +244,7 @@ impl ScanStore {
                     // authoritative list; upserting by id makes overlap safe.
                     Ok(pilots) => {
                         for pilot in pilots {
-                            this.pilots.upsert(pilot);
+                            this.upsert(pilot);
                         }
                         let ids = this.entity_ids();
                         this.intel
@@ -280,12 +302,20 @@ impl ScanStore {
 }
 
 pub fn init(
+    settings: Entity<SettingsStore>,
     intel: Entity<IntelStore>,
     filters: Entity<FilterStore>,
     cx: &mut App,
 ) -> Entity<ScanStore> {
     cx.new(|cx| {
         let mut store = ScanStore::new(intel, filters);
+        store.period = settings.read(cx).get().stats_period;
+        store._settings = Some(
+            cx.observe(&settings, |store: &mut ScanStore, settings, cx| {
+                let period = settings.read(cx).get().stats_period;
+                store.set_period(period, cx);
+            }),
+        );
         store.ensure_sde(cx);
         store
     })

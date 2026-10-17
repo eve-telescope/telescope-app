@@ -15,7 +15,7 @@ use crate::domain::lookup::{
     BATCH_INTERVAL_MS, LookupEvent, LookupProgress, LookupTracker, MAX_BATCH_SIZE,
 };
 use crate::domain::threat::{danger_score, detect_pilot_flags, threat_level_for};
-use crate::models::{CharacterInfo, PilotFlags, PilotIntel};
+use crate::models::{CharacterInfo, PilotFlags, PilotIntel, StatsPeriod};
 
 /// Cap on simultaneous per-pilot lookups so large locals don't burst
 /// hundreds of concurrent ESI/zKill requests into rate limits.
@@ -41,8 +41,8 @@ pub struct PilotBatch {
     pub progress: LookupProgress,
 }
 
-/// `sde` names the ships in each pilot's zKillboard stats, which arrive as
-/// bare type ids.
+/// `sde` names the ships and systems in each pilot's zKillboard stats,
+/// which arrive as bare ids.
 pub async fn lookup_pilots(
     cache: &Cache,
     names_text: &str,
@@ -168,7 +168,12 @@ fn name_ships(pilot: &mut PilotIntel, sde: Option<&SdeIndex>) {
     let (Some(sde), Some(zkill)) = (sde, pilot.zkill.as_mut()) else {
         return;
     };
-    for ship in &mut zkill.top_ships {
+    let ships = zkill
+        .top_ships
+        .iter_mut()
+        .chain(&mut zkill.week_ships)
+        .chain(&mut zkill.all_time_ships);
+    for ship in ships {
         if let Some(entry) = sde.get(ship.ship_type_id) {
             if ship.ship_name.is_empty() {
                 ship.ship_name = entry.type_name.clone();
@@ -176,6 +181,16 @@ fn name_ships(pilot: &mut PilotIntel, sde: Option<&SdeIndex>) {
             if ship.group_name.is_empty() {
                 ship.group_name = entry.group_name.clone();
             }
+            if ship.group_id == 0 {
+                ship.group_id = entry.group_id;
+            }
+        }
+    }
+    for system in &mut zkill.all_time_systems {
+        if system.system_name.is_empty()
+            && let Some(name) = sde.system_name(system.system_id)
+        {
+            system.system_name = name.to_string();
         }
     }
 }
@@ -192,7 +207,7 @@ fn try_from_cache(cache: &Cache, character_id: Option<i64>) -> Option<PilotIntel
     let zkill_opt = Some(zkill_result);
     let danger = zkill_opt.as_ref().and_then(danger_score).map(|s| s.total);
     let threat_level = threat_level_for(danger).to_string();
-    let flags = detect_pilot_flags(&zkill_opt);
+    let flags = detect_pilot_flags(&zkill_opt, StatsPeriod::default());
 
     Some(PilotIntel {
         character,
@@ -201,6 +216,7 @@ fn try_from_cache(cache: &Cache, character_id: Option<i64>) -> Option<PilotIntel
         danger,
         flags,
         error: None,
+        period: StatsPeriod::default(),
     })
 }
 
@@ -237,7 +253,7 @@ async fn fetch_pilot_intel(
 
                 let danger = zkill.as_ref().and_then(danger_score).map(|s| s.total);
                 let threat_level = threat_level_for(danger).to_string();
-                let flags = detect_pilot_flags(&zkill);
+                let flags = detect_pilot_flags(&zkill, StatsPeriod::default());
                 (
                     PilotIntel {
                         character,
@@ -246,6 +262,7 @@ async fn fetch_pilot_intel(
                         danger,
                         flags,
                         error: None,
+                        period: StatsPeriod::default(),
                     },
                     from_cache,
                 )
@@ -269,6 +286,7 @@ async fn fetch_pilot_intel(
                         danger: None,
                         flags: PilotFlags::default(),
                         error: Some(e),
+                        period: StatsPeriod::default(),
                     },
                     false,
                 )
@@ -293,6 +311,7 @@ async fn fetch_pilot_intel(
                     danger: None,
                     flags: PilotFlags::default(),
                     error: Some("Character not found".to_string()),
+                    period: StatsPeriod::default(),
                 },
                 false,
             )

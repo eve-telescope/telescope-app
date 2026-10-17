@@ -1,6 +1,6 @@
 //! Threat scoring and pilot-flag detection from zKillboard stats.
 
-use crate::models::{PilotFlags, ZkillStats};
+use crate::models::{PilotFlags, StatsPeriod, ZkillStats};
 
 mod ship_groups {
     pub const FORCE_RECON: i64 = 833;
@@ -46,30 +46,37 @@ const CAPITAL_GROUPS: &[i64] = &[
 
 const SUPER_GROUPS: &[i64] = &[ship_groups::SUPERCARRIER, ship_groups::TITAN];
 
-pub fn detect_pilot_flags(zkill: &Option<ZkillStats>) -> PilotFlags {
+/// Flags from the ships flown in `period`. All time also counts the hull
+/// groups the pilot has lost, since that ship list has kills only.
+pub fn detect_pilot_flags(zkill: &Option<ZkillStats>, period: StatsPeriod) -> PilotFlags {
     let mut flags = PilotFlags::default();
 
     let Some(stats) = zkill else {
         return flags;
     };
 
-    let ships = &stats.top_ships;
-
-    let has_ship_in_group = |groups: &[i64], min_appearances: i64| {
-        ships
-            .iter()
-            .any(|s| groups.contains(&s.group_id) && s.kills + s.losses >= min_appearances)
+    let ships = stats.ships(period);
+    let lost = match period {
+        StatsPeriod::AllTime => &stats.lost_groups[..],
+        _ => &[],
     };
 
-    flags.is_recon = has_ship_in_group(RECON_GROUPS, 1);
-    flags.is_blops = has_ship_in_group(&[ship_groups::BLACK_OPS], 1);
-    flags.is_cyno = has_ship_in_group(COVERT_CYNO_GROUPS, 1);
-    flags.is_capital = has_ship_in_group(CAPITAL_GROUPS, 1);
-    flags.is_super = has_ship_in_group(SUPER_GROUPS, 1);
+    let has_ship_in_group = |groups: &[i64]| {
+        ships
+            .iter()
+            .any(|s| groups.contains(&s.group_id) && s.kills + s.losses > 0)
+            || lost.iter().any(|g| groups.contains(&g.group_id))
+    };
 
-    if stats.ships_destroyed > 10 {
-        let solo_ratio = stats.solo_kills as f64 / stats.ships_destroyed as f64;
-        flags.is_solo = solo_ratio > 0.3;
+    flags.is_recon = has_ship_in_group(RECON_GROUPS);
+    flags.is_blops = has_ship_in_group(&[ship_groups::BLACK_OPS]);
+    flags.is_cyno = has_ship_in_group(COVERT_CYNO_GROUPS);
+    flags.is_capital = has_ship_in_group(CAPITAL_GROUPS);
+    flags.is_super = has_ship_in_group(SUPER_GROUPS);
+
+    let counts = stats.kill_counts(period);
+    if counts.kills > 10 {
+        flags.is_solo = counts.solo as f64 / counts.kills as f64 > 0.3;
     }
 
     flags
@@ -226,7 +233,7 @@ pub fn threat_rank(level: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ShipStats;
+    use crate::models::{GroupLosses, KillCounts, ShipStats};
 
     #[test]
     fn threat_rank_orders_every_level_calculate_can_produce() {
@@ -259,9 +266,12 @@ mod tests {
 
     #[test]
     fn no_stats_yields_default_flags() {
-        assert_eq!(detect_pilot_flags(&None), PilotFlags::default());
         assert_eq!(
-            detect_pilot_flags(&Some(ZkillStats::default())),
+            detect_pilot_flags(&None, StatsPeriod::Quarter),
+            PilotFlags::default()
+        );
+        assert_eq!(
+            detect_pilot_flags(&Some(ZkillStats::default()), StatsPeriod::Quarter),
             PilotFlags::default()
         );
     }
@@ -269,38 +279,38 @@ mod tests {
     #[test]
     fn recon_groups_set_recon_and_cyno() {
         // Force recon (833) is both a recon group and a covert-cyno group.
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 1)]));
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 1)]), StatsPeriod::Quarter);
         assert!(flags.is_recon);
         assert!(flags.is_cyno);
         assert!(!flags.is_blops);
         assert!(!flags.is_capital);
 
         // Combat recon (906) is recon but not covert-cyno.
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(906, 1)]));
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(906, 1)]), StatsPeriod::Quarter);
         assert!(flags.is_recon);
         assert!(!flags.is_cyno);
     }
 
     #[test]
     fn zero_kill_ships_do_not_set_flags() {
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 0)]));
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(833, 0)]), StatsPeriod::Quarter);
         assert_eq!(flags, PilotFlags::default());
     }
 
     #[test]
     fn blops_sets_blops_and_cyno() {
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(898, 1)]));
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(898, 1)]), StatsPeriod::Quarter);
         assert!(flags.is_blops);
         assert!(flags.is_cyno);
     }
 
     #[test]
     fn supers_are_also_capitals() {
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(30, 1)])); // Titan
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(30, 1)]), StatsPeriod::Quarter); // Titan
         assert!(flags.is_super);
         assert!(flags.is_capital);
 
-        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(485, 1)])); // Dreadnought
+        let flags = detect_pilot_flags(&stats_with_ships(vec![ship(485, 1)]), StatsPeriod::Quarter); // Dreadnought
         assert!(flags.is_capital);
         assert!(!flags.is_super);
     }
@@ -314,13 +324,38 @@ mod tests {
                 ..ZkillStats::default()
             })
         };
+        let all_time = |stats| detect_pilot_flags(&stats, StatsPeriod::AllTime);
 
         // > 30% solo of > 10 kills
-        assert!(detect_pilot_flags(&solo_stats(100, 40)).is_solo);
+        assert!(all_time(solo_stats(100, 40)).is_solo);
         // Ratio below threshold
-        assert!(!detect_pilot_flags(&solo_stats(100, 30)).is_solo);
+        assert!(!all_time(solo_stats(100, 30)).is_solo);
         // Not enough total kills, even at 100% solo
-        assert!(!detect_pilot_flags(&solo_stats(10, 10)).is_solo);
+        assert!(!all_time(solo_stats(10, 10)).is_solo);
+    }
+
+    #[test]
+    fn flags_follow_the_period() {
+        let stats = Some(ZkillStats {
+            week_ships: vec![ship(898, 2)],
+            top_ships: vec![ship(906, 5)],
+            lost_groups: vec![GroupLosses {
+                group_id: 485,
+                losses: 1,
+            }],
+            week_kills: KillCounts {
+                kills: 20,
+                solo: 10,
+            },
+            ..ZkillStats::default()
+        });
+        let week = detect_pilot_flags(&stats, StatsPeriod::Week);
+        assert!(week.is_blops && week.is_solo && !week.is_recon);
+        let quarter = detect_pilot_flags(&stats, StatsPeriod::Quarter);
+        assert!(quarter.is_recon && !quarter.is_blops && !quarter.is_capital);
+        assert!(!quarter.is_solo);
+        // All time adds lost hull groups.
+        assert!(detect_pilot_flags(&stats, StatsPeriod::AllTime).is_capital);
     }
 
     #[test]

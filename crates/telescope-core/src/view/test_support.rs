@@ -1,4 +1,4 @@
-use crate::models::{CharacterInfo, PilotFlags, PilotIntel, ZkillStats};
+use crate::models::{CharacterInfo, PilotFlags, PilotIntel, StatsPeriod, ZkillStats};
 
 pub fn pilot(id: i64, name: &str) -> PilotIntel {
     PilotIntel {
@@ -17,6 +17,7 @@ pub fn pilot(id: i64, name: &str) -> PilotIntel {
         danger: None,
         flags: PilotFlags::default(),
         error: None,
+        period: StatsPeriod::default(),
     }
 }
 

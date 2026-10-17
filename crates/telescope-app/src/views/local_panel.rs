@@ -31,7 +31,7 @@ use crate::views::intel_card::{Close, intel_panel};
 use crate::views::motion::{self, Arrivals};
 use crate::views::notes::annotation_notes_button;
 use crate::views::pilot_details::{DETAILS_HEIGHT, pilot_details};
-use crate::views::stats::danger_cell;
+use crate::views::stats::{danger_cell, period_title, period_tooltip};
 use crate::views::tags::{TABLE, role_glyph, tag_strip};
 
 const ROW_HEIGHT: f32 = 40.;
@@ -75,6 +75,7 @@ impl LocalPanel {
         let subscriptions = vec![
             cx.observe(&stores.scan, |this, _, cx| this.refresh(cx)),
             cx.observe(&stores.filters, |this, _, cx| this.refresh(cx)),
+            cx.observe(&stores.settings, |_, _, cx| cx.notify()),
             cx.observe(&stores.intel, |this, _, cx| {
                 let pilots = Stores::get(cx).scan.read(cx).pilots().to_vec();
                 Stores::get(cx)
@@ -191,6 +192,7 @@ impl LocalPanel {
 
     fn render_header(&self, count: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let header_cell = |col: Col| cell(col).px_2().py_2();
+        let period = Stores::get(cx).settings.read(cx).get().stats_period;
         div()
             .flex()
             .flex_none()
@@ -238,7 +240,12 @@ impl LocalPanel {
                 false,
                 cx,
             )))
-            .child(header_cell(COLS[5]).child("SHIPS"))
+            .child(header_cell(COLS[5]).child(period_title(
+                "ships-period",
+                "SHIPS",
+                period,
+                period_tooltip(period),
+            )))
             .child(header_cell(COLS[6]).child(self.sort_header(
                 SortKey::Danger,
                 "DANGER",
@@ -265,6 +272,8 @@ impl LocalPanel {
         let row_cell = |col: Col| cell(col).px_2().py_1p5();
         let dash = || div().text_color(theme::color(TEXT_3)).child("—");
         let z = pilot.zkill.as_ref();
+        let period = Stores::get(cx).settings.read(cx).get().stats_period;
+        let ships = z.map_or(&[][..], |z| z.ships(period));
 
         let main_row = if pilot.is_unresolved() {
             unresolved_row(pilot)
@@ -334,12 +343,13 @@ impl LocalPanel {
                     )),
                 )
                 .child(
-                    row_cell(COLS[5]).child(match z.filter(|z| !z.top_ships.is_empty()) {
-                        Some(z) => div()
+                    row_cell(COLS[5]).child(match ships {
+                        [] => dash().into_any_element(),
+                        ships => div()
                             .flex()
                             .items_center()
                             .gap_1()
-                            .children(z.top_ships.iter().take(5).map(|ship| {
+                            .children(ships.iter().take(5).map(|ship| {
                                 let tooltip: SharedString =
                                     format!("{} ({})", ship.ship_name, ship.kills).into();
                                 div()
@@ -357,17 +367,16 @@ impl LocalPanel {
                                     })
                                     .child(img(ship_icon_url(ship.ship_type_id, 64)).size_full())
                             }))
-                            .when(z.top_ships.len() > 5, |el| {
+                            .when(ships.len() > 5, |el| {
                                 el.child(
                                     div()
                                         .ml_0p5()
                                         .text_size(px(10.))
                                         .text_color(theme::color(TEXT_3))
-                                        .child(format!("+{}", z.top_ships.len() - 5)),
+                                        .child(format!("+{}", ships.len() - 5)),
                                 )
                             })
                             .into_any_element(),
-                        None => dash().into_any_element(),
                     }),
                 )
                 .child(row_cell(COLS[6]).child(danger_cell(
