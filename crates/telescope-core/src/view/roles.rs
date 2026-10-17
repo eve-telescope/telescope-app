@@ -3,7 +3,7 @@
 //! category, in place of the old text flags.
 
 use super::dscan_view::Hull;
-use crate::models::PilotIntel;
+use crate::models::{PilotIntel, StatsPeriod};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -161,23 +161,24 @@ impl Role {
     }
 }
 
-/// The pilot's roles, most dangerous first. Cyno and solo come from their
-/// zKillboard flags.
+/// The pilot's roles in their `period`, most dangerous first. Cyno and solo
+/// come from their zKillboard flags.
 pub fn pilot_roles(pilot: &PilotIntel) -> Vec<Role> {
     let mut order: Vec<Role> = Vec::new();
-    // Recent appearances from top ships, plus all-time losses per group so
-    // hulls that dropped out of the recent top list still count.
-    let recent = pilot
+    let flown = pilot
         .zkill
         .iter()
-        .flat_map(|z| &z.top_ships)
+        .flat_map(|z| z.ships(pilot.period))
         .map(|ship| (ship.group_id, ship.kills + ship.losses));
-    let all_time = pilot
+    // The all-time ship list has kills only, so add the groups the pilot
+    // has lost ships in.
+    let lost = pilot
         .zkill
         .iter()
+        .filter(|_| pilot.period == StatsPeriod::AllTime)
         .flat_map(|z| &z.lost_groups)
         .map(|group| (group.group_id, group.losses));
-    for (group_id, appearances) in recent.chain(all_time) {
+    for (group_id, appearances) in flown.chain(lost) {
         let Some(role) = Role::for_group(group_id) else {
             continue;
         };
@@ -251,6 +252,8 @@ mod tests {
                 losses: 2,
             }];
         }
+        assert!(pilot_roles(&p).is_empty());
+        p.period = StatsPeriod::AllTime;
         assert_eq!(pilot_roles(&p), vec![Role::Dreadnought]);
     }
 

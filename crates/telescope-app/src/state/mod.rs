@@ -26,7 +26,7 @@ impl Stores {
         let settings = settings::init(cx);
         let intel = intel::init(cx);
         let filters = filters::init(intel.clone(), cx);
-        let scan = scan::init(intel.clone(), filters.clone(), cx);
+        let scan = scan::init(settings.clone(), intel.clone(), filters.clone(), cx);
         cx.set_global(Self {
             settings,
             intel,

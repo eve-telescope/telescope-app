@@ -6,7 +6,7 @@ use gpui_kit::{
     KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window, div, px,
 };
-use telescope_core::settings::DEFAULT_SHORTCUT;
+use telescope_core::settings::{DEFAULT_SHORTCUT, Settings};
 use telescope_core::view::shortcut::{Modifiers, Shortcut, ShortcutValidation};
 
 use crate::state::Stores;
@@ -38,7 +38,53 @@ fn dom_key(key: &str) -> String {
     }
 }
 
+/// Which of the global shortcuts an editor changes.
+#[derive(Clone, Copy, PartialEq)]
+pub enum ShortcutSlot {
+    Scan,
+    Period,
+}
+
+impl ShortcutSlot {
+    pub fn get(self, settings: &Settings) -> &str {
+        match self {
+            Self::Scan => &settings.global_shortcut,
+            Self::Period => &settings.period_shortcut,
+        }
+    }
+
+    fn set(self, settings: &mut Settings, shortcut: String) {
+        match self {
+            Self::Scan => settings.global_shortcut = shortcut,
+            Self::Period => settings.period_shortcut = shortcut,
+        }
+    }
+
+    /// Empty for shortcuts that are off until someone sets them.
+    fn default(self) -> &'static str {
+        match self {
+            Self::Scan => DEFAULT_SHORTCUT,
+            Self::Period => "",
+        }
+    }
+
+    fn other(self) -> Self {
+        match self {
+            Self::Scan => Self::Period,
+            Self::Period => Self::Scan,
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Scan => "scan-shortcut",
+            Self::Period => "period-shortcut",
+        }
+    }
+}
+
 pub struct ShortcutEditor {
+    slot: ShortcutSlot,
     focus: FocusHandle,
     recording: bool,
     recorded: Option<Shortcut>,
@@ -46,7 +92,7 @@ pub struct ShortcutEditor {
 }
 
 impl ShortcutEditor {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(slot: ShortcutSlot, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         let blur = cx.on_blur(&focus, window, |this, _, cx| {
             if this.recording && this.recorded.is_none() {
@@ -54,6 +100,7 @@ impl ShortcutEditor {
             }
         });
         Self {
+            slot,
             focus,
             recording: false,
             recorded: None,
@@ -75,8 +122,9 @@ impl ShortcutEditor {
     }
 
     fn save(&mut self, shortcut: String, cx: &mut Context<Self>) {
+        let slot = self.slot;
         Stores::get(cx).settings.update(cx, |settings, cx| {
-            settings.update(cx, |s| s.global_shortcut = shortcut)
+            settings.update(cx, |s| slot.set(s, shortcut))
         });
         self.stop(cx);
     }
@@ -129,23 +177,25 @@ fn kbd(key: String, editing: bool) -> impl IntoElement {
 
 impl Render for ShortcutEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let current = Stores::get(cx)
-            .settings
-            .read(cx)
-            .get()
-            .global_shortcut
-            .clone();
-        let shown = self
-            .recorded
-            .clone()
-            .or_else(|| Shortcut::parse(&current))
-            .unwrap_or_default();
+        let slot = self.slot;
+        let settings = Stores::get(cx).settings.read(cx).get();
+        let current = slot.get(settings).to_string();
+        let taken = slot.other().get(settings).to_string();
+        let shown = self.recorded.clone().or_else(|| Shortcut::parse(&current));
+        let recorded = self.recorded.as_ref().map(ToString::to_string);
+        let duplicate = recorded.as_ref().is_some_and(|r| *r == taken);
         let validation = self.recorded.as_ref().map(Shortcut::validate);
         let conflict = matches!(validation, Some(ShortcutValidation::Conflict(_)));
-        let recorded = self.recorded.as_ref().map(ToString::to_string);
-        let is_default = current == DEFAULT_SHORTCUT;
+        let message = if duplicate {
+            Some("Already used by the other shortcut".to_string())
+        } else {
+            validation.and_then(|v| v.message())
+        };
+        let can_save = !duplicate && validation.is_some_and(ShortcutValidation::is_valid);
+        let is_default = current == slot.default();
 
         div()
+            .id(slot.id())
             .flex()
             .flex_col()
             .items_end()
@@ -199,13 +249,20 @@ impl Render for ShortcutEditor {
                                             .text_color(theme::color(CYAN))
                                             .child("Press keys…"),
                                     )
-                                } else {
+                                } else if let Some(shown) = shown {
                                     let editing = self.recording;
                                     el.children(
                                         shown
                                             .format_keys(IS_MAC)
                                             .into_iter()
                                             .map(|k| kbd(k, editing)),
+                                    )
+                                } else {
+                                    el.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme::color(TEXT_3))
+                                            .child("Not set"),
                                     )
                                 }
                             }),
@@ -231,7 +288,7 @@ impl Render for ShortcutEditor {
                                     } else {
                                         "Save shortcut"
                                     })
-                                    .disabled(!validation.is_some_and(ShortcutValidation::is_valid))
+                                    .disabled(!can_save)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.save(recorded.clone(), cx)
                                     })),
@@ -253,34 +310,35 @@ impl Render for ShortcutEditor {
                                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
                         ),
                         None => el.when(!is_default, |el| {
+                            let (icon, tooltip) = if slot.default().is_empty() {
+                                (IconName::X, "Remove shortcut")
+                            } else {
+                                (IconName::RotateCcw, "Reset to default")
+                            };
                             el.child(
                                 Button::new("reset-shortcut")
                                     .ghost()
                                     .small()
-                                    .icon(
-                                        Icon::new(IconName::RotateCcw)
-                                            .text_color(theme::color(TEXT_3)),
-                                    )
-                                    .tooltip("Reset to default")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.save(DEFAULT_SHORTCUT.to_string(), cx)
+                                    .icon(Icon::new(icon).text_color(theme::color(TEXT_3)))
+                                    .tooltip(tooltip)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.save(slot.default().to_string(), cx)
                                     })),
                             )
                         }),
                     }),
             )
-            .when_some(
-                validation
-                    .and_then(|v| v.message())
-                    .filter(|_| self.recording),
-                |el, message| {
-                    el.child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(theme::color(if conflict { ORANGE } else { RED }))
-                            .child(message),
-                    )
-                },
-            )
+            .when_some(message.filter(|_| self.recording), |el, message| {
+                el.child(
+                    div()
+                        .text_size(px(10.))
+                        .text_color(theme::color(if conflict && !duplicate {
+                            ORANGE
+                        } else {
+                            RED
+                        }))
+                        .child(message),
+                )
+            })
     }
 }

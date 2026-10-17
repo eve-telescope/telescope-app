@@ -25,15 +25,109 @@ pub struct ZkillStats {
     pub points_destroyed: i64,
     pub active_pvp_kills: i64,
     pub avg_attackers: f64,
+    /// Ships flown in the last 90 days, which the threat score and roles use.
     pub top_ships: Vec<ShipStats>,
+    /// Last 90 days.
     pub activity: Option<ActivityHeatmap>,
+    /// Last 7 days.
     pub top_systems: Vec<SystemStats>,
+    /// Ships killed with in the last 7 days and all time. zKillboard has no
+    /// losses for these, so `losses` is always 0.
+    #[serde(default)]
+    pub week_ships: Vec<ShipStats>,
+    #[serde(default)]
+    pub all_time_ships: Vec<ShipStats>,
+    /// Named from the SDE, like the ship names.
+    #[serde(default)]
+    pub all_time_systems: Vec<SystemStats>,
+    /// PvP and solo kills in the last 7 and 90 days, for the solo tag.
+    #[serde(default)]
+    pub week_kills: KillCounts,
+    #[serde(default)]
+    pub quarter_kills: KillCounts,
     /// All-time ships lost per ship group, i.e. hulls the pilot has flown.
     #[serde(default)]
     pub lost_groups: Vec<GroupLosses>,
     /// Kills in the current and previous two calendar months.
     #[serde(default)]
     pub recent_kills: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KillCounts {
+    pub kills: i64,
+    pub solo: i64,
+}
+
+impl ZkillStats {
+    pub fn kill_counts(&self, period: StatsPeriod) -> KillCounts {
+        match period {
+            StatsPeriod::Week => self.week_kills,
+            StatsPeriod::Quarter => self.quarter_kills,
+            StatsPeriod::AllTime => KillCounts {
+                kills: self.ships_destroyed,
+                solo: self.solo_kills,
+            },
+        }
+    }
+
+    pub fn ships(&self, period: StatsPeriod) -> &[ShipStats] {
+        match period {
+            StatsPeriod::Week => &self.week_ships,
+            StatsPeriod::Quarter => &self.top_ships,
+            StatsPeriod::AllTime => &self.all_time_ships,
+        }
+    }
+
+    /// The systems for `period` and the period they actually cover:
+    /// zKillboard has no 90-day systems, so that shows the last 7 days.
+    pub fn systems(&self, period: StatsPeriod) -> (StatsPeriod, &[SystemStats]) {
+        match period {
+            StatsPeriod::Week | StatsPeriod::Quarter => (StatsPeriod::Week, &self.top_systems),
+            StatsPeriod::AllTime => (StatsPeriod::AllTime, &self.all_time_systems),
+        }
+    }
+}
+
+/// How far back the ship and system lists look.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StatsPeriod {
+    #[serde(rename = "7d")]
+    Week,
+    #[default]
+    #[serde(rename = "90d")]
+    Quarter,
+    #[serde(rename = "all")]
+    AllTime,
+}
+
+impl StatsPeriod {
+    pub const ALL: [Self; 3] = [Self::Week, Self::Quarter, Self::AllTime];
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Week => Self::Quarter,
+            Self::Quarter => Self::AllTime,
+            Self::AllTime => Self::Week,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Week => "Last 7 days",
+            Self::Quarter => "Last 90 days",
+            Self::AllTime => "All time",
+        }
+    }
+
+    /// Short form for column headers.
+    pub fn short(self) -> &'static str {
+        match self {
+            Self::Week => "7D",
+            Self::Quarter => "90D",
+            Self::AllTime => "ALL",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -83,11 +177,21 @@ pub struct PilotIntel {
     /// Danger score 0..=100, `None` without zKillboard history.
     #[serde(default)]
     pub danger: Option<u8>,
+    /// Derived for `period`, like the role tags.
     pub flags: PilotFlags,
     pub error: Option<String>,
+    /// The stats period `flags` and the role tags follow. The scan store
+    /// sets it from the settings.
+    #[serde(skip)]
+    pub period: StatsPeriod,
 }
 
 impl PilotIntel {
+    pub fn set_period(&mut self, period: StatsPeriod) {
+        self.period = period;
+        self.flags = crate::domain::threat::detect_pilot_flags(&self.zkill, period);
+    }
+
     /// The lookup failed, either because no character has this name or
     /// because ESI could not be reached.
     pub fn is_unresolved(&self) -> bool {

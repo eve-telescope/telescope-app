@@ -3,13 +3,14 @@
 
 use gpui_kit::{
     AnyElement, AppContext as _, Context, Div, ElementId, FontWeight, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render,
-    StatefulInteractiveElement as _, Styled as _, Window, div, px, relative,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
+    Stateful, StatefulInteractiveElement as _, Styled as _, Window, div, px, relative,
 };
 use telescope_core::domain::threat::{DangerScore, danger_score};
-use telescope_core::models::{PilotIntel, ZkillStats};
+use telescope_core::models::{PilotIntel, StatsPeriod, ZkillStats};
 use telescope_core::view::format::{format_isk, format_ppk, kd_ratio};
 
+use crate::state::Stores;
 use crate::theme::{self, BG_3, CYAN, GREEN, ORANGE, SURFACE, TEXT_1, TEXT_2, TEXT_3};
 use crate::ui::mono;
 use crate::views::motion;
@@ -24,6 +25,40 @@ pub fn group_thousands(n: i64) -> String {
         out.push(c);
     }
     if n < 0 { format!("-{out}") } else { out }
+}
+
+/// A title with the stats period it covers after it. Clicking it switches
+/// the setting to the next period.
+pub fn period_title(
+    id: impl Into<ElementId>,
+    title: &'static str,
+    period: StatsPeriod,
+    tooltip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let tooltip = tooltip.into();
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .hover(|s| s.text_color(theme::color(TEXT_1)))
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+        })
+        .on_click(|_, _, cx| {
+            cx.stop_propagation();
+            Stores::get(cx)
+                .settings
+                .update(cx, |settings, cx| settings.cycle_period(cx))
+        })
+        .child(title)
+        .child(div().text_color(theme::color(CYAN)).child(period.short()))
+}
+
+/// The tooltip for a list that covers `period`.
+pub fn period_tooltip(period: StatsPeriod) -> String {
+    format!("{}. Click to switch.", period.label())
 }
 
 /// Share of ISK destroyed out of all ISK involved, or `None` with no history.

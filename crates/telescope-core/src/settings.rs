@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+use crate::models::StatsPeriod;
+
 const FILE: &str = "settings.json";
 const LEGACY_FILE: &str = "tauri-plugin-vue/settings.json";
 
@@ -23,6 +25,9 @@ pub struct WindowBounds {
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     pub global_shortcut: String,
+    /// Global shortcut that cycles `stats_period`; empty when unset.
+    pub period_shortcut: String,
+    pub stats_period: StatsPeriod,
     pub sort_column: String,
     pub sort_direction: String,
     pub overlay_locked: bool,
@@ -34,6 +39,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             global_shortcut: DEFAULT_SHORTCUT.to_string(),
+            period_shortcut: String::new(),
+            stats_period: StatsPeriod::default(),
             sort_column: "threat".to_string(),
             sort_direction: "desc".to_string(),
             overlay_locked: false,

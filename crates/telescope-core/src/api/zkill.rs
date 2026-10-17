@@ -3,7 +3,7 @@ use log::{debug, error, warn};
 use reqwest::Client;
 
 use super::{cache_get_json, cache_set};
-use crate::models::{ActivityHeatmap, GroupLosses, ShipStats, SystemStats, ZkillStats};
+use crate::models::{ActivityHeatmap, GroupLosses, KillCounts, ShipStats, SystemStats, ZkillStats};
 
 const DEFAULT_TTL_SECS: u64 = 3600;
 const EMPTY_TTL_SECS: u64 = 300;
@@ -13,10 +13,10 @@ pub struct FetchResult {
     pub from_cache: bool,
 }
 
-/// Versioned so entries parsed before zKillboard moved ship stats into
-/// `topShips` are not reused.
+/// Versioned so entries parsed before a format change (most recently the
+/// 7-day and all-time lists) are not reused.
 fn cache_key(character_id: i64) -> String {
-    format!("zkill:v4:{character_id}")
+    format!("zkill:v5:{character_id}")
 }
 
 pub fn try_get_cached(cache: &Cache, character_id: i64) -> Option<ZkillStats> {
@@ -145,7 +145,12 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         .unwrap_or(0);
 
     let top_ships = parse_top_ships(json);
-    let top_systems = parse_top_systems(json);
+    let top_systems = parse_systems(top_list(json, "solarSystem"));
+    let week_ships = parse_ships(top_list(json, "shipType"));
+    let all_time_ships = parse_ships(all_time_list(json, "ship"));
+    let all_time_systems = parse_systems(all_time_list(json, "system"));
+    let week_kills = parse_kill_counts(json, "weeklyLabels");
+    let quarter_kills = parse_kill_counts(json, "recentLabels");
     let lost_groups = parse_lost_groups(json);
     let recent_kills = parse_recent_kills(json, chrono::Utc::now().date_naive());
     let activity = parse_activity(json);
@@ -170,6 +175,11 @@ fn parse_zkill_response(json: &serde_json::Value) -> ZkillStats {
         top_ships,
         activity,
         top_systems,
+        week_ships,
+        all_time_ships,
+        all_time_systems,
+        week_kills,
+        quarter_kills,
         lost_groups,
         recent_kills,
     }
@@ -217,34 +227,62 @@ fn parse_lost_groups(json: &serde_json::Value) -> Vec<GroupLosses> {
     groups
 }
 
-/// Ships the pilot flew, most appearances first. zKillboard now reports
-/// them in `topShips` without names (filled in from the SDE later); the
-/// older `topLists` shipType list is read when `topShips` is absent.
-fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
-    let rows: Vec<&serde_json::Value> = match json.get("topShips").and_then(|v| v.as_array()) {
-        Some(rows) => rows.iter().collect(),
-        None => json
-            .get("topLists")
-            .and_then(|v| v.as_array())
-            .into_iter()
-            .flatten()
-            .filter(|list| list.get("type").and_then(|v| v.as_str()) == Some("shipType"))
-            .filter_map(|list| list.get("values").and_then(|v| v.as_array()))
-            .flatten()
-            .collect(),
+/// PvP and solo kills from zKillboard's `weeklyLabels` (7 days) or
+/// `recentLabels` (90 days).
+fn parse_kill_counts(json: &serde_json::Value, labels: &str) -> KillCounts {
+    let kills = |label: &str| {
+        json.get(labels)
+            .and_then(|v| v.get(label))
+            .map_or(0, |v| int(v, "shipsDestroyed"))
     };
+    KillCounts {
+        kills: kills("pvp"),
+        solo: kills("solo"),
+    }
+}
 
-    let int =
-        |row: &serde_json::Value, key: &str| row.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-    let text = |row: &serde_json::Value, key: &str| {
-        row.get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-
-    let mut ships: Vec<ShipStats> = rows
+/// The rows of one of the 7-day `topLists`, e.g. "shipType".
+fn top_list<'a>(
+    json: &'a serde_json::Value,
+    kind: &'a str,
+) -> impl Iterator<Item = &'a serde_json::Value> {
+    json.get("topLists")
+        .and_then(|v| v.as_array())
         .into_iter()
+        .flatten()
+        .filter(move |list| list.get("type").and_then(|v| v.as_str()) == Some(kind))
+        .filter_map(|list| list.get("values").and_then(|v| v.as_array()))
+        .flatten()
+}
+
+/// The rows of one of the `topAllTime` lists, e.g. "ship". They carry IDs
+/// only; names come from the SDE.
+fn all_time_list<'a>(
+    json: &'a serde_json::Value,
+    kind: &'a str,
+) -> impl Iterator<Item = &'a serde_json::Value> {
+    json.get("topAllTime")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter(move |list| list.get("type").and_then(|v| v.as_str()) == Some(kind))
+        .filter_map(|list| list.get("data").and_then(|v| v.as_array()))
+        .flatten()
+}
+
+/// Ships the pilot flew in the last 90 days. zKillboard now reports them in
+/// `topShips` without names (filled in from the SDE later); the older
+/// `topLists` shipType list is read when `topShips` is absent.
+fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
+    match json.get("topShips").and_then(|v| v.as_array()) {
+        Some(rows) => parse_ships(rows.iter()),
+        None => parse_ships(top_list(json, "shipType")),
+    }
+}
+
+/// The ten ships with the most appearances.
+fn parse_ships<'a>(rows: impl Iterator<Item = &'a serde_json::Value>) -> Vec<ShipStats> {
+    let mut ships: Vec<ShipStats> = rows
         .map(|row| ShipStats {
             ship_type_id: int(row, "shipTypeID"),
             ship_name: text(row, "shipName"),
@@ -260,42 +298,27 @@ fn parse_top_ships(json: &serde_json::Value) -> Vec<ShipStats> {
     ships
 }
 
-fn parse_top_systems(json: &serde_json::Value) -> Vec<SystemStats> {
-    let mut top_systems = Vec::new();
+/// The first five systems, which zKillboard lists by kills.
+fn parse_systems<'a>(rows: impl Iterator<Item = &'a serde_json::Value>) -> Vec<SystemStats> {
+    rows.map(|row| SystemStats {
+        system_id: int(row, "solarSystemID"),
+        system_name: text(row, "solarSystemName"),
+        kills: int(row, "kills"),
+    })
+    .filter(|system| system.system_id > 0)
+    .take(5)
+    .collect()
+}
 
-    if let Some(lists) = json.get("topLists").and_then(|v| v.as_array()) {
-        for list in lists {
-            if list.get("type").and_then(|v| v.as_str()) == Some("solarSystem")
-                && let Some(values) = list.get("values").and_then(|v| v.as_array())
-            {
-                for (i, sys) in values.iter().enumerate() {
-                    if i >= 5 {
-                        break;
-                    }
-                    let system_id = sys
-                        .get("solarSystemID")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    let system_name = sys
-                        .get("solarSystemName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let kills = sys.get("kills").and_then(|v| v.as_i64()).unwrap_or(0);
+fn int(row: &serde_json::Value, key: &str) -> i64 {
+    row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
+}
 
-                    if system_id > 0 {
-                        top_systems.push(SystemStats {
-                            system_id,
-                            system_name,
-                            kills,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    top_systems
+fn text(row: &serde_json::Value, key: &str) -> String {
+    row.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn parse_activity(json: &serde_json::Value) -> Option<ActivityHeatmap> {
@@ -322,6 +345,7 @@ fn parse_activity(json: &serde_json::Value) -> Option<ActivityHeatmap> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::StatsPeriod;
     use serde_json::json;
 
     #[test]
@@ -480,9 +504,54 @@ mod tests {
         let json = json!({
             "topLists": [{ "type": "solarSystem", "values": values }]
         });
-        let systems = parse_top_systems(&json);
+        let systems = parse_zkill_response(&json).top_systems;
         assert_eq!(systems.len(), 5);
         assert_eq!(systems[0].system_name, "System 1");
+    }
+
+    #[test]
+    fn parse_zkill_response_reads_week_and_all_time_lists() {
+        let json = json!({
+            "topShips": [ship(1, "Loki", 50)],
+            "topLists": [{ "type": "shipType", "values": [ship(2, "Sabre", 3)] }],
+            "topAllTime": [
+                { "type": "ship", "data": [
+                    { "kills": 7, "shipTypeID": 3 },
+                    { "kills": 90, "shipTypeID": 4 }
+                ] },
+                { "type": "system", "data": [{ "kills": 12, "solarSystemID": 30000142 }] }
+            ]
+        });
+        let stats = parse_zkill_response(&json);
+        assert_eq!(stats.ships(StatsPeriod::Quarter)[0].ship_name, "Loki");
+        assert_eq!(stats.ships(StatsPeriod::Week)[0].ship_name, "Sabre");
+        let all_time: Vec<i64> = stats
+            .ships(StatsPeriod::AllTime)
+            .iter()
+            .map(|ship| ship.ship_type_id)
+            .collect();
+        assert_eq!(all_time, [4, 3]);
+        let (period, systems) = stats.systems(StatsPeriod::AllTime);
+        assert_eq!(period, StatsPeriod::AllTime);
+        assert_eq!(systems[0].system_id, 30000142);
+        assert_eq!(systems[0].system_name, "");
+    }
+
+    #[test]
+    fn parse_kill_counts_reads_labels() {
+        let json = json!({
+            "recentLabels": { "pvp": { "shipsDestroyed": 40 }, "solo": { "shipsDestroyed": 12 } },
+            "weeklyLabels": { "pvp": { "shipsDestroyed": 3 } }
+        });
+        let stats = parse_zkill_response(&json);
+        assert_eq!(
+            stats.quarter_kills,
+            KillCounts {
+                kills: 40,
+                solo: 12
+            }
+        );
+        assert_eq!(stats.week_kills, KillCounts { kills: 3, solo: 0 });
     }
 
     #[test]

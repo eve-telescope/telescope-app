@@ -30,6 +30,10 @@ struct SdeIndexCache {
     build_number: i64,
     generated_at: String,
     entries: Vec<ScanTypeIndexEntry>,
+    /// Solar system names by ID. Missing from caches built before they were
+    /// added, which `ensure_sde_index` then rebuilds.
+    #[serde(default)]
+    system_names: HashMap<i64, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +62,9 @@ impl SdeService {
 
         let dir = app_dir.to_path_buf();
         let loaded = tokio::task::spawn_blocking(move || -> Result<Option<SdeIndex>, String> {
-            Ok(load_index_cache(&dir)?.map(|cache| SdeIndex::from_entries(cache.entries)))
+            Ok(load_index_cache(&dir)?.map(|cache| {
+                SdeIndex::from_entries(cache.entries).with_system_names(cache.system_names)
+            }))
         })
         .await
         .map_err(|err| err.to_string())??;
@@ -113,6 +119,9 @@ pub async fn ensure_sde_index(app_dir: &Path, service: &SdeService) -> Result<Sd
     // source of truth between calls (matches the previous stateless
     // behavior, and turns a past failure into a fresh start automatically).
     let mut phase = match current.as_ref() {
+        // Build 0 never matches the remote one, so an index without system
+        // names is rebuilt while the old one stays usable.
+        Some(cache) if cache.system_names.is_empty() => SdePhase::Ready { build: 0 },
         Some(cache) => SdePhase::Ready {
             build: cache.build_number,
         },
@@ -268,12 +277,43 @@ fn build_index_cache_from_zip(
     let categories = read_categories(&mut archive)?;
     let groups = read_groups(&mut archive)?;
     let entries = read_type_entries(&mut archive, &categories, &groups)?;
+    let system_names = read_system_names(&mut archive)?;
 
     Ok(SdeIndexCache {
         build_number,
         generated_at: Utc::now().to_rfc3339(),
         entries,
+        system_names,
     })
+}
+
+fn read_system_names(archive: &mut ZipArchive<File>) -> Result<HashMap<i64, String>, String> {
+    let mut file = archive
+        .by_name("mapSolarSystems.jsonl")
+        .map_err(|err| err.to_string())?;
+    let reader = BufReader::new(&mut file);
+    let mut names = HashMap::new();
+
+    for line in reader.lines() {
+        let line = line.map_err(|err| err.to_string())?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = serde_json::from_str(&line).map_err(|err| err.to_string())?;
+        let Some(id) = value.get("_key").and_then(Value::as_i64) else {
+            continue;
+        };
+        if let Some(name) = value
+            .get("name")
+            .and_then(|name| name.get("en"))
+            .and_then(Value::as_str)
+        {
+            names.insert(id, name.to_string());
+        }
+    }
+
+    Ok(names)
 }
 
 fn read_sde_build_number(archive: &mut ZipArchive<File>) -> Result<Option<i64>, String> {

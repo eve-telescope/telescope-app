@@ -40,6 +40,11 @@ impl PilotAccumulator {
         self.pilots.iter()
     }
 
+    /// For changes that keep each pilot's row key.
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, PilotIntel> {
+        self.pilots.iter_mut()
+    }
+
     pub fn as_slice(&self) -> &[PilotIntel] {
         &self.pilots
     }

@@ -23,6 +23,10 @@ impl SettingsStore {
             cx.notify();
         }
     }
+
+    pub fn cycle_period(&mut self, cx: &mut Context<Self>) {
+        self.update(cx, |s| s.stats_period = s.stats_period.next());
+    }
 }
 
 pub fn init(cx: &mut App) -> Entity<SettingsStore> {
