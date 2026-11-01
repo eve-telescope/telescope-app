@@ -746,6 +746,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
 dependencies = [
  "memchr",
+ "regex-automata",
  "serde_core",
 ]
 
@@ -2448,9 +2449,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-base"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cf698677b253118459f552fe15513858c669d79a25837a94e480db2ae330050"
+checksum = "9d405c1d84a4531cfbb67691a33ca921f6b968662ff649774b1c2a387177b009"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2489,9 +2490,9 @@ dependencies = [
 
 [[package]]
 name = "gpui-component"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc8b7def8e74b0d822d3e96f6b28fb5a2c20eb7a83d30d22fa59ca8088d1159b"
+checksum = "fb68a4725f3ef44c772e1490f775cf8950a17e8e5836572f080dc5bbcaede5db"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2524,18 +2525,21 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "similar",
  "smallvec",
  "smol",
  "tracing",
+ "unicode-segmentation",
+ "unicode-width",
  "uuid",
  "windows 0.58.0",
 ]
 
 [[package]]
 name = "gpui-component-macros"
-version = "0.7.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2968cc7f4a2bd8f51b09cfe4f1e77409951b48a0e2d48f372b010e69c3d7fb49"
+checksum = "5c0c9398aaf99e595d450e38eb44ff0c500df8c332b4783d5b72022e69525359"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2545,23 +2549,24 @@ dependencies = [
 
 [[package]]
 name = "gpui-kit"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be18e0417095ebfea77ac25962961ff4e41a120ea6cb8f05a7505b682478b83e"
+checksum = "684ee523f71c15e23b92b6d04aab46c9a50a679c514ef2b8ebb7eca2ca84233b"
 dependencies = [
  "gpui-base",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
+ "gpui-pre-macros",
  "gpui-pre-platform",
  "gpui-pre-web",
 ]
 
 [[package]]
 name = "gpui-kit-assets"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db6c481ca987f1e6f10b1aed4d47f1b301cd1dc6f3016fac93c305f2a4f307c0"
+checksum = "cb5fd2b154c96abe8ac49d8c431a24a764977128fce6a72a5f9f1e8802f64fe7"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -6661,6 +6666,16 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+dependencies = [
+ "bstr",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "simplecss"
